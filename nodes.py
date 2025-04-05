@@ -22,7 +22,7 @@ import comfy.model_management as model_management
 import comfy.utils
 import folder_paths
 
-import scripts.reactor_version
+# import scripts.reactor_version
 from r_chainner import model_loading
 from scripts.reactor_faceswap import (
     FaceSwapScript,
