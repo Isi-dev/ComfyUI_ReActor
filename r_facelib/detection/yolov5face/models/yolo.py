@@ -21,9 +21,9 @@ from .common import (
     StemBlock,
 )
 from .experimental import CrossConv, MixConv2d
-from .utils.autoanchor import check_anchor_order
-from .utils.general import make_divisible
-from .utils.torch_utils import copy_attr, fuse_conv_and_bn
+from ..utils.autoanchor import check_anchor_order
+from ..utils.general import make_divisible
+from ..utils.torch_utils import copy_attr, fuse_conv_and_bn
 
 
 class Detect(nn.Module):
