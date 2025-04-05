@@ -22,9 +22,9 @@ import comfy.model_management as model_management
 import comfy.utils
 import folder_paths
 
-import scripts.reactor_version
-from r_chainner import model_loading
-from scripts.reactor_faceswap import (
+import .scripts import reactor_version
+from .r_chainner import model_loading
+from .scripts.reactor_faceswap import (
     FaceSwapScript,
     get_models,
     get_current_faces_model,
@@ -32,10 +32,10 @@ from scripts.reactor_faceswap import (
     half_det_size,
     providers
 )
-from scripts.reactor_swapper import (
+from .scripts.reactor_swapper import (
     unload_all_models,
 )
-from scripts.reactor_logger import logger
+from .scripts.reactor_logger import logger
 from reactor_utils import (
     batch_tensor_to_pil,
     batched_pil_to_tensor,
