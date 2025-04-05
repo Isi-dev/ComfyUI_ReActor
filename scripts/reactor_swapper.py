@@ -16,14 +16,14 @@ import torch
 
 import folder_paths
 import comfy.model_management as model_management
-from modules.shared import state
+from ..modules.shared import state
 
-from scripts.reactor_logger import logger
-from reactor_utils import (
+from .reactor_logger import logger
+from ..reactor_utils import (
     move_path,
     get_image_md5hash,
 )
-from scripts.r_faceboost import swapper, restorer
+from .r_faceboost import swapper, restorer
 
 import warnings
 
