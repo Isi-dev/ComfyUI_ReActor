@@ -16,7 +16,7 @@ import comfy.model_management as model_management
 from ..reactor_logger import logger
 from ...r_basicsr.utils.registry import ARCH_REGISTRY
 from ...r_chainner import model_loading
-from reactor_utils import (
+from ...reactor_utils import (
     tensor2img,
     img2tensor,
     set_ort_session,
