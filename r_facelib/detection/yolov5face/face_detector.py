@@ -6,10 +6,10 @@ import numpy as np
 import torch
 from torch import torch_version
 
-from r_facelib.detection.yolov5face.models.common import Conv
-from r_facelib.detection.yolov5face.models.yolo import Model
-from r_facelib.detection.yolov5face.utils.datasets import letterbox
-from r_facelib.detection.yolov5face.utils.general import (
+from .models.common import Conv
+from .models.yolo import Model
+from .utils.datasets import letterbox
+from .utils.general import (
     check_img_size,
     non_max_suppression_face,
     scale_coords,
