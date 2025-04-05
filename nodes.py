@@ -36,7 +36,7 @@ from .scripts.reactor_swapper import (
     unload_all_models,
 )
 from .scripts.reactor_logger import logger
-from reactor_utils import (
+from .reactor_utils import (
     batch_tensor_to_pil,
     batched_pil_to_tensor,
     tensor_to_pil,
@@ -51,15 +51,15 @@ from reactor_utils import (
     add_folder_path_and_extensions,
     rgba2rgb_tensor
 )
-from reactor_patcher import apply_patch
-from r_facelib.utils.face_restoration_helper import FaceRestoreHelper
-from r_basicsr.utils.registry import ARCH_REGISTRY
-import scripts.r_archs.codeformer_arch
-import scripts.r_masking.subcore as subcore
-import scripts.r_masking.core as core
-import scripts.r_masking.segs as masking_segs
+from .reactor_patcher import apply_patch
+from .r_facelib.utils.face_restoration_helper import FaceRestoreHelper
+from .r_basicsr.utils.registry import ARCH_REGISTRY
+from .scripts import r_archs.codeformer_arch
+from .scripts import r_masking.subcore as subcore
+from .scripts import r_masking.core as core
+from .scripts import r_masking.segs as masking_segs
 
-import scripts.reactor_sfw as sfw
+from .scripts import reactor_sfw as sfw
 
 
 models_dir = folder_paths.models_dir
