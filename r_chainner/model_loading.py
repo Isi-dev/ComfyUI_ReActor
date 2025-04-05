@@ -1,5 +1,5 @@
 from .archs.face.gfpganv1_clean_arch import GFPGANv1Clean
-from types import PyTorchModel
+from .types import PyTorchModel
 
 
 class UnsupportedModel(Exception):
