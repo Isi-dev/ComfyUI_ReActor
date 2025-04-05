@@ -1,6 +1,9 @@
 import sys
 import os
 
+
+
+
 repo_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, repo_dir)
 original_modules = sys.modules.copy()
@@ -22,6 +25,7 @@ for module in modules_used:
 # Proceed with node setup
 from .nodes import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS
 
+
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
 
 # Clean up imports
@@ -37,3 +41,9 @@ for module in modules_to_remove:
 
 # Restore original modules
 sys.modules.update(original_webui_modules)
+
+from . import scripts  # Exposes all scripts/*.py files
+from . import r_chainner
+from . import r_facelib
+from . import r_basicsr
+from . import modules
