@@ -2,16 +2,16 @@ import os, glob
 
 from PIL import Image
 
-import modules.scripts as scripts
+# import modules.scripts as scripts
 # from modules.upscaler import Upscaler, UpscalerData
-from modules import scripts, scripts_postprocessing
-from modules.processing import (
+from ..modules import scripts, scripts_postprocessing
+from ..modules.processing import (
     StableDiffusionProcessing,
     StableDiffusionProcessingImg2Img,
 )
-from modules.shared import state
-from scripts.reactor_logger import logger
-from scripts.reactor_swapper import (
+from ..modules.shared import state
+from .reactor_logger import logger
+from .reactor_swapper import (
     swap_face,
     swap_face_many,
     get_current_faces_model,
