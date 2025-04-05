@@ -2,8 +2,9 @@ import importlib
 from copy import deepcopy
 from os import path as osp
 
-from ..r_basicsr.utils import get_root_logger, scandir
-from ..r_basicsr.utils.registry import ARCH_REGISTRY
+# from ..r_basicsr.utils import get_root_logger, scandir
+from ..utils import get_root_logger, scandir
+from ..utils.registry import ARCH_REGISTRY
 
 __all__ = ['build_network']
 
