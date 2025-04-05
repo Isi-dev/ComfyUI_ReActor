@@ -54,7 +54,7 @@ from .reactor_utils import (
 from .reactor_patcher import apply_patch
 from .r_facelib.utils.face_restoration_helper import FaceRestoreHelper
 from .r_basicsr.utils.registry import ARCH_REGISTRY
-from .scripts import r_archs.codeformer_arch
+# from .scripts.r_archs import codeformer_arch
 from .scripts import r_masking.subcore as subcore
 from .scripts import r_masking.core as core
 from .scripts import r_masking.segs as masking_segs
