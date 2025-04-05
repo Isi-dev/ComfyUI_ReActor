@@ -45,5 +45,5 @@ sys.modules.update(original_webui_modules)
 from . import scripts  # Exposes all scripts/*.py files
 from . import r_chainner
 from . import r_facelib
-from . import r_basicsr
+# from . import r_basicsr
 from . import modules
