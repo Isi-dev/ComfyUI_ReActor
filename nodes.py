@@ -60,7 +60,7 @@ from .scripts.r_masking import subcore
 from .scripts.r_masking import core
 from .scripts.r_masking import segs as masking_segs
 
-from .scripts import reactor_sfw as sfw
+# from .scripts import reactor_sfw as sfw
 
 
 models_dir = folder_paths.models_dir
