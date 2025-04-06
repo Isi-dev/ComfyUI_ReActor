@@ -384,7 +384,7 @@ class reactor:
 
             if source_image is not None:
                 source = tensor_to_pil(source_image)
-                print("Source Image Set!")
+                # print("Source Image Set!")
             else:
                 source = None
                 print("Source Image not detected!")
