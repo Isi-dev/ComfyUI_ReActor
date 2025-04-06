@@ -237,6 +237,9 @@ def swap_face(
     global SOURCE_FACES, SOURCE_IMAGE_HASH, TARGET_FACES, TARGET_IMAGE_HASH
     result_image = target_img
 
+    if model is None:
+        print("No faceswap model Found.")
+
     if model is not None:
 
         if isinstance(source_img, str):  # source_img is a base64 string
@@ -288,6 +291,7 @@ def swap_face(
 
         else:
             logger.error("Cannot detect any Source")
+            
 
         if source_faces is not None:
 
@@ -407,6 +411,9 @@ def swap_face_many(
 ):
     global SOURCE_FACES, SOURCE_IMAGE_HASH, TARGET_FACES, TARGET_IMAGE_HASH, TARGET_FACES_LIST, TARGET_IMAGE_LIST_HASH
     result_images = target_imgs
+
+    if model is None:
+        print("No faceswap model Found.")
 
     if model is not None:
 
