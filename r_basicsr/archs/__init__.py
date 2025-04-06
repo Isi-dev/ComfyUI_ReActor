@@ -14,7 +14,14 @@ __all__ = ['build_network']
 arch_folder = osp.dirname(osp.abspath(__file__))
 arch_filenames = [osp.splitext(osp.basename(v))[0] for v in scandir(arch_folder) if v.endswith('_arch.py')]
 # import all the arch modules
-_arch_modules = [importlib.import_module(f'..r_basicsr.archs.{file_name}') for file_name in arch_filenames]
+# _arch_modules = [importlib.import_module(f'..r_basicsr.archs.{file_name}') for file_name in arch_filenames]
+
+try:
+    from .. import r_basicsr
+    _arch_modules = [importlib.import_module(f'.{file_name}', package='r_basicsr.archs') for file_name in arch_filenames]
+except ImportError:
+    # Fallback to absolute import
+    _arch_modules = [importlib.import_module(f'r_basicsr.archs.{file_name}') for file_name in arch_filenames]
 
 
 def build_network(opt):
