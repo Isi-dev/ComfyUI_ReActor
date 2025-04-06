@@ -15,8 +15,8 @@ from scipy import stats
 from insightface.app.common import Face
 from segment_anything import sam_model_registry
 
-# from modules.processing import StableDiffusionProcessingImg2Img
-# from modules.shared import state
+from .modules.processing import StableDiffusionProcessingImg2Img
+from .modules.shared import state
 # from comfy_extras.chainner_models import model_loading
 import comfy.model_management as model_management
 import comfy.utils
@@ -127,19 +127,19 @@ def model_names():
     return {os.path.basename(x): x for x in models}
 
 
-class StableDiffusionProcessing:
+# class StableDiffusionProcessing:
 
-    def __init__(self, init_imgs):
-        self.init_images = init_imgs
-        self.width = init_imgs[0].width
-        self.height = init_imgs[0].height
-        self.extra_generation_params = {}
+#     def __init__(self, init_imgs):
+#         self.init_images = init_imgs
+#         self.width = init_imgs[0].width
+#         self.height = init_imgs[0].height
+#         self.extra_generation_params = {}
 
 
-class StableDiffusionProcessingImg2Img(StableDiffusionProcessing):
+# class StableDiffusionProcessingImg2Img(StableDiffusionProcessing):
 
-    def __init__(self, init_img):
-        super().__init__(init_img)
+#     def __init__(self, init_img):
+#         super().__init__(init_img)
 
 
 class reactor:
