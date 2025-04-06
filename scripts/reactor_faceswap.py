@@ -101,12 +101,12 @@ class FaceSwapScript(scripts.Script):
                 self.gender_target = 2
 
             # if self.source is not None:
-            print("Checking if p is a StableDiffusionProcessingImg2Img...")
+            # print("Checking if p is a StableDiffusionProcessingImg2Img...")
             if isinstance(p, StableDiffusionProcessingImg2Img) and swap_in_source:
                 logger.status(f"Working: source face index %s, target face index %s", self.source_faces_index, self.faces_index)
 
                 if len(p.init_images) == 1:
-                    print("Swapping face in single image...")
+                    # print("Swapping face in single image...")
                     result = swap_face(
                         self.source,
                         p.init_images[0],
@@ -144,7 +144,7 @@ class FaceSwapScript(scripts.Script):
                     #     p.init_images[i] = result
 
                 elif len(p.init_images) > 1:
-                    print("Swapping face in multiple images...")
+                    # print("Swapping face in multiple images...")
                     result = swap_face_many(
                         self.source,
                         p.init_images,
@@ -164,7 +164,7 @@ class FaceSwapScript(scripts.Script):
                     p.init_images = result
 
                 logger.status("--Done!--")
-                print("Faceswap Complete!")
+                # print("Faceswap Complete!")
             else:
                 print("p instance check failed!")
             #     logger.error(f"Please provide a source face")
