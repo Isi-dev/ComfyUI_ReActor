@@ -56,9 +56,9 @@ from .r_facelib.utils.face_restoration_helper import FaceRestoreHelper
 from .r_basicsr.utils.registry import ARCH_REGISTRY
 # from .scripts.r_archs import codeformer_arch
 # from .scripts import r_masking.subcore as subcore
-from .scripts.r_masking import subcore
-from .scripts.r_masking import core
-from .scripts.r_masking import segs as masking_segs
+# from .scripts.r_masking import subcore
+# from .scripts.r_masking import core
+# from .scripts.r_masking import segs as masking_segs
 
 # from .scripts import reactor_sfw as sfw
 
