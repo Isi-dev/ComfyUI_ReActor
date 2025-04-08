@@ -585,130 +585,133 @@ def swap_face(
     codeformer_weight: float = 0.5,
     interpolation: str = "Bicubic",
 ):
-    global SOURCE_FACES, SOURCE_IMAGE_HASH, TARGET_FACES, TARGET_IMAGE_HASH
-    
-    # Initialize GPU device
+    # Initialize GPU
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    result_image = target_img  # Fallback result
     
-    # Convert images to GPU tensors early
-    def image_to_gpu_tensor(img):
-        if isinstance(img, Image.Image):
-            img_np = np.array(img)
-            if len(img_np.shape) == 2:  # Grayscale
-                img_np = np.stack([img_np]*3, axis=-1)
-            return torch.from_numpy(img_np).float().permute(2, 0, 1).unsqueeze(0).to(device)
-        return img
-
-    # Convert target image to GPU tensor
-    target_tensor = image_to_gpu_tensor(target_img)
-    result_image = target_img  # Fallback
-
     if model is None:
-        print("No faceswap model found.")
+        logger.error("No faceswap model specified")
         return result_image
 
     try:
-        # Handle base64 source images
+        # 1. Input Validation and Conversion
+        def validate_image(img):
+            if isinstance(img, Image.Image):
+                img = np.array(img)
+                if img.size == 0:
+                    raise ValueError("Empty source image")
+                if len(img.shape) == 2:  # Grayscale to RGB
+                    img = np.stack([img]*3, axis=-1)
+                return img
+            return img
+
+        # Process source image
+        source_np = None
         if isinstance(source_img, str):
             import base64, io
-            base64_data = source_img.split('base64,')[-1] if 'base64,' in source_img else source_img
-            img_bytes = base64.b64decode(base64_data)
-            source_img = Image.open(io.BytesIO(img_bytes))
+            try:
+                base64_data = source_img.split('base64,')[-1]
+                img_bytes = base64.b64decode(base64_data)
+                source_img = Image.open(io.BytesIO(img_bytes))
+            except Exception as e:
+                logger.error(f"Base64 decode failed: {str(e)}")
+                return result_image
 
-        # Convert source image to GPU tensor if available
-        source_tensor = None
         if source_img is not None:
-            source_tensor = image_to_gpu_tensor(source_img)
-            source_np = source_tensor.squeeze(0).permute(1, 2, 0).cpu().numpy().astype('uint8')
-            source_img_cv = cv2.cvtColor(source_np, cv2.COLOR_RGB2BGR)
-        else:
-            source_img_cv = None
+            try:
+                source_np = validate_image(source_img)
+                source_img_cv = cv2.cvtColor(source_np, cv2.COLOR_RGB2BGR)
+                if source_img_cv.size == 0:
+                    raise ValueError("Empty source image after conversion")
+            except Exception as e:
+                logger.error(f"Source image processing failed: {str(e)}")
+                return result_image
+        elif face_model is None:
+            logger.error("No valid source provided")
+            return result_image
 
-        # Get face swapper model with GPU enforcement
-        model_path = os.path.join(
-            insightface_path if "inswapper" in model else reswapper_path,
-            model
-        )
+        # Process target image
+        try:
+            target_np = validate_image(target_img)
+            target_img_cv = cv2.cvtColor(target_np, cv2.COLOR_RGB2BGR)
+            if target_img_cv.size == 0:
+                raise ValueError("Empty target image after conversion")
+        except Exception as e:
+            logger.error(f"Target image processing failed: {str(e)}")
+            return result_image
+
+        # 2. Face Analysis with Validation
+        def safe_analyze(img_cv):
+            if img_cv.size == 0 or img_cv.shape[0] < 10 or img_cv.shape[1] < 10:
+                logger.warning("Image too small for face detection")
+                return []
+            try:
+                faces = analyze_faces(img_cv)
+                if not faces:
+                    logger.warning("No faces detected")
+                return faces
+            except Exception as e:
+                logger.warning(f"Face analysis failed: {str(e)}")
+                return []
+
+        # Analyze source
+        source_faces = [face_model] if face_model else safe_analyze(source_img_cv)
+        if not source_faces:
+            logger.error("No source faces available")
+            return result_image
+
+        # Analyze target
+        target_faces = safe_analyze(target_img_cv)
+        if not target_faces:
+            logger.error("No target faces detected")
+            return result_image
+
+        # 3. GPU-accelerated Face Swapping
+        model_path = os.path.join(insightface_path if "inswapper" in model else reswapper_path, model)
         face_swapper = getFaceSwapModel(model_path)
 
-        # Face analysis with GPU optimization
-        def analyze_faces_gpu(img_cv):
-            img_np = cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB)
-            img_tensor = torch.from_numpy(img_np).float().to(device)
-            
-            # Use cached faces if available
-            img_hash = get_image_md5hash(img_cv)
-            cache_key = f"{img_hash}_{model_path}"
-            
-            if cache_key in FACE_CACHE:
-                return FACE_CACHE[cache_key]
-                
-            faces = analyze_faces(img_cv)
-            FACE_CACHE[cache_key] = faces
-            return faces
-
-        # Process source faces
-        if source_img_cv is not None:
-            source_faces = analyze_faces_gpu(source_img_cv)
-        elif face_model is not None:
-            source_faces = [face_model]
-        else:
-            logger.error("Cannot detect any Source")
+        # Get source face with validation
+        source_face, src_wrong_gender = get_face_single(
+            source_img_cv if source_np is not None else None,
+            source_faces,
+            face_index=source_faces_index[0],
+            gender_source=gender_source,
+            order=faces_order[1]
+        )
+        if source_face is None:
+            logger.error("Failed to get source face")
             return result_image
 
-        # Process target faces
-        target_np = target_tensor.squeeze(0).permute(1, 2, 0).cpu().numpy().astype('uint8')
-        target_img_cv = cv2.cvtColor(target_np, cv2.COLOR_RGB2BGR)
-        target_faces = analyze_faces_gpu(target_img_cv)
+        # Process each target face
+        result_cv = target_img_cv.copy()
+        for face_num in faces_index:
+            if face_num >= len(target_faces):
+                logger.warning(f"Face index {face_num} out of range")
+                continue
 
-        if not target_faces:
-            logger.status("Cannot detect any Target, skipping swapping...")
-            return result_image
+            target_face, wrong_gender = get_face_single(
+                target_img_cv,
+                target_faces,
+                face_index=face_num,
+                gender_target=gender_target,
+                order=faces_order[0]
+            )
+            if target_face is None or wrong_gender != 0:
+                continue
 
-        # Main swapping loop with GPU acceleration
-        with torch.cuda.amp.autocast():
-            result_tensor = target_tensor.clone()
-            
-            for face_num in faces_index:
-                if face_num >= len(target_faces):
-                    break
-
-                # Get source face with GPU optimization
-                source_face, src_wrong_gender = get_face_single(
-                    source_img_cv if source_img_cv is not None else None,
-                    source_faces,
-                    face_index=source_faces_index[0],
-                    gender_source=gender_source,
-                    order=faces_order[1]
-                )
-
-                if source_face is None or src_wrong_gender != 0:
-                    continue
-
-                # Get target face with GPU optimization
-                target_face, wrong_gender = get_face_single(
-                    target_img_cv,
-                    target_faces,
-                    face_index=face_num,
-                    gender_target=gender_target,
-                    order=faces_order[0]
-                )
-
-                if target_face is None or wrong_gender != 0:
-                    continue
-
-                # Perform the actual face swap on GPU
+            try:
+                # Perform swap with dimension validation
                 if face_boost_enabled:
-                    # GPU-accelerated face boost
                     bgr_fake, M = face_swapper.get(
-                        result_tensor.cpu().numpy(),  # Temporary CPU for OpenCV
+                        result_cv,
                         target_face,
                         source_face,
                         paste_back=False
                     )
+                    # Validate before restoration
+                    if bgr_fake.size == 0 or M is None:
+                        raise ValueError("Invalid face swap result")
                     
-                    # Convert back to GPU for restoration
-                    bgr_fake = torch.from_numpy(bgr_fake).float().to(device)
                     bgr_fake = restorer.get_restored_face(
                         bgr_fake,
                         face_restore_model,
@@ -716,35 +719,28 @@ def swap_face(
                         codeformer_weight,
                         interpolation
                     )
-                    
-                    # Final composition on GPU
-                    result_tensor = swapper.in_swap(result_tensor, bgr_fake, M)
+                    result_cv = swapper.in_swap(result_cv, bgr_fake, M)
                 else:
-                    # Standard GPU swap
-                    result_np = face_swapper.get(
-                        result_tensor.cpu().numpy(),  # Temporary CPU for OpenCV
-                        target_face,
-                        source_face
-                    )
-                    result_tensor = torch.from_numpy(result_np).float().to(device)
+                    result = face_swapper.get(result_cv, target_face, source_face)
+                    if result.size == 0:
+                        raise ValueError("Empty swap result")
+                    result_cv = result
 
-        # Convert final result back to PIL Image
-        result_np = result_tensor.squeeze(0).permute(1, 2, 0).cpu().numpy().astype('uint8')
-        result_image = Image.fromarray(cv2.cvtColor(result_np, cv2.COLOR_BGR2RGB))
+            except Exception as e:
+                logger.warning(f"Face swap failed for face {face_num}: {str(e)}")
+                continue
+
+        # Convert back to PIL Image with validation
+        if result_cv.size == 0:
+            logger.error("Empty result after processing")
+            return result_image
+            
+        result_image = Image.fromarray(cv2.cvtColor(result_cv, cv2.COLOR_BGR2RGB))
 
     except Exception as e:
-        logger.error(f"Error during face swap: {str(e)}")
-        result_image = target_img  # Return original if error occurs
-
+        logger.error(f"Critical error in swap_face: {str(e)}")
     finally:
-        # Clean up GPU resources
         torch.cuda.empty_cache()
-        if 'source_tensor' in locals():
-            del source_tensor
-        if 'target_tensor' in locals():
-            del target_tensor
-        if 'result_tensor' in locals():
-            del result_tensor
 
     return result_image
 
