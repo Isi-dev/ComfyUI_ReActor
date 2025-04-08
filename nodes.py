@@ -332,7 +332,7 @@ class reactor:
 
             result = restored_img_tensor
 
-            if face_restore_model != "none"
+            if face_restore_model != "none":
                 del face_restore_model
 
         return result
