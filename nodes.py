@@ -326,11 +326,14 @@ class reactor:
                 # if state.interrupted or model_management.processing_interrupted():
                 #     logger.status("Interrupted by User")
                 #     return input_image
-
+            
             restored_img_np = np.array(out_images).astype(np.float32) / 255.0
             restored_img_tensor = torch.from_numpy(restored_img_np)
 
             result = restored_img_tensor
+
+            if face_restore_model != "none"
+                del face_restore_model
 
         return result
 
