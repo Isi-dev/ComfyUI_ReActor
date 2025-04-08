@@ -109,39 +109,13 @@ def get_current_faces_model():
     global SOURCE_FACES
     return SOURCE_FACES
 
-# def getAnalysisModel(det_size = (640, 640)):
-#     global ANALYSIS_MODELS
-#     ANALYSIS_MODEL = ANALYSIS_MODELS[str(det_size[0])]
-#     if ANALYSIS_MODEL is None:
-#         ANALYSIS_MODEL = insightface.app.FaceAnalysis(
-#             name="buffalo_l", providers=providers, root=insightface_path
-#         )
-#     ANALYSIS_MODEL.prepare(ctx_id=0, det_size=det_size)
-#     ANALYSIS_MODELS[str(det_size[0])] = ANALYSIS_MODEL
-#     return ANALYSIS_MODEL
-
-# def getFaceSwapModel(model_path: str):
-#     global FS_MODEL, CURRENT_FS_MODEL_PATH
-#     if FS_MODEL is None or CURRENT_FS_MODEL_PATH is None or CURRENT_FS_MODEL_PATH != model_path:
-#         CURRENT_FS_MODEL_PATH = model_path
-#         FS_MODEL = unload_model(FS_MODEL)
-#         FS_MODEL = insightface.model_zoo.get_model(model_path, providers=providers)
-
-#     return FS_MODEL
-
-
-def getAnalysisModel(det_size=(640, 640)):
+def getAnalysisModel(det_size = (640, 640)):
     global ANALYSIS_MODELS
     ANALYSIS_MODEL = ANALYSIS_MODELS[str(det_size[0])]
     if ANALYSIS_MODEL is None:
-        # Force CUDA execution provider for GPU acceleration
         ANALYSIS_MODEL = insightface.app.FaceAnalysis(
-            name="buffalo_l", 
-            providers=["CUDAExecutionProvider"],  # Explicitly use CUDA
-            root=insightface_path
+            name="buffalo_l", providers=providers, root=insightface_path
         )
-        # Disable CPU fallback
-        ANALYSIS_MODEL.disable_cpu_fallback = True  
     ANALYSIS_MODEL.prepare(ctx_id=0, det_size=det_size)
     ANALYSIS_MODELS[str(det_size[0])] = ANALYSIS_MODEL
     return ANALYSIS_MODEL
@@ -151,15 +125,41 @@ def getFaceSwapModel(model_path: str):
     if FS_MODEL is None or CURRENT_FS_MODEL_PATH is None or CURRENT_FS_MODEL_PATH != model_path:
         CURRENT_FS_MODEL_PATH = model_path
         FS_MODEL = unload_model(FS_MODEL)
-        # Force CUDA execution
-        FS_MODEL = insightface.model_zoo.get_model(
-            model_path, 
-            providers=["CUDAExecutionProvider"]
-        )
-        # Ensure model uses GPU
-        if hasattr(FS_MODEL, 'model'):
-            FS_MODEL.model.to('cuda')
+        FS_MODEL = insightface.model_zoo.get_model(model_path, providers=providers)
+
     return FS_MODEL
+
+
+# def getAnalysisModel(det_size=(640, 640)):
+#     global ANALYSIS_MODELS
+#     ANALYSIS_MODEL = ANALYSIS_MODELS[str(det_size[0])]
+#     if ANALYSIS_MODEL is None:
+#         # Force CUDA execution provider for GPU acceleration
+#         ANALYSIS_MODEL = insightface.app.FaceAnalysis(
+#             name="buffalo_l", 
+#             providers=["CUDAExecutionProvider"],  # Explicitly use CUDA
+#             root=insightface_path
+#         )
+#         # Disable CPU fallback
+#         ANALYSIS_MODEL.disable_cpu_fallback = True  
+#     ANALYSIS_MODEL.prepare(ctx_id=0, det_size=det_size)
+#     ANALYSIS_MODELS[str(det_size[0])] = ANALYSIS_MODEL
+#     return ANALYSIS_MODEL
+
+# def getFaceSwapModel(model_path: str):
+#     global FS_MODEL, CURRENT_FS_MODEL_PATH
+#     if FS_MODEL is None or CURRENT_FS_MODEL_PATH is None or CURRENT_FS_MODEL_PATH != model_path:
+#         CURRENT_FS_MODEL_PATH = model_path
+#         FS_MODEL = unload_model(FS_MODEL)
+#         # Force CUDA execution
+#         FS_MODEL = insightface.model_zoo.get_model(
+#             model_path, 
+#             providers=["CUDAExecutionProvider"]
+#         )
+#         # Ensure model uses GPU
+#         if hasattr(FS_MODEL, 'model'):
+#             FS_MODEL.model.to('cuda')
+#     return FS_MODEL
 
 
 def sort_by_order(face, order: str):
@@ -214,38 +214,38 @@ def half_det_size(det_size):
     logger.status("Trying to halve 'det_size' parameter")
     return (det_size[0] // 2, det_size[1] // 2)
 
-# def analyze_faces(img_data: np.ndarray, det_size=(640, 640)):
-#     face_analyser = getAnalysisModel(det_size)
-#     faces = face_analyser.get(img_data)
-
-#     # Try halving det_size if no faces are found
-#     if len(faces) == 0 and det_size[0] > 320 and det_size[1] > 320:
-#         det_size_half = half_det_size(det_size)
-#         return analyze_faces(img_data, det_size_half)
-
-#     return faces
-
-
 def analyze_faces(img_data: np.ndarray, det_size=(640, 640)):
-    # Convert numpy array to GPU tensor first
-    if not isinstance(img_data, torch.Tensor):
-        img_tensor = torch.from_numpy(img_data).float().to('cuda')
-        img_data = img_tensor.cpu().numpy()  # Convert back for OpenCV compatibility
-    
     face_analyser = getAnalysisModel(det_size)
-    
-    # Try with GPU first
-    try:
-        faces = face_analyser.get(img_data)
-    except RuntimeError as e:
-        logger.warning(f"GPU analysis failed, falling back to CPU: {str(e)}")
-        faces = face_analyser.get(img_data)  # Will use CPU if GPU fails
-    
-    # Fallback to smaller detection size if needed
-    if len(faces) == 0 and det_size[0] > 320:
-        return analyze_faces(img_data, half_det_size(det_size))
-    
+    faces = face_analyser.get(img_data)
+
+    # Try halving det_size if no faces are found
+    if len(faces) == 0 and det_size[0] > 320 and det_size[1] > 320:
+        det_size_half = half_det_size(det_size)
+        return analyze_faces(img_data, det_size_half)
+
     return faces
+
+
+# def analyze_faces(img_data: np.ndarray, det_size=(640, 640)):
+#     # Convert numpy array to GPU tensor first
+#     if not isinstance(img_data, torch.Tensor):
+#         img_tensor = torch.from_numpy(img_data).float().to('cuda')
+#         img_data = img_tensor.cpu().numpy()  # Convert back for OpenCV compatibility
+    
+#     face_analyser = getAnalysisModel(det_size)
+    
+#     # Try with GPU first
+#     try:
+#         faces = face_analyser.get(img_data)
+#     except RuntimeError as e:
+#         logger.warning(f"GPU analysis failed, falling back to CPU: {str(e)}")
+#         faces = face_analyser.get(img_data)  # Will use CPU if GPU fails
+    
+#     # Fallback to smaller detection size if needed
+#     if len(faces) == 0 and det_size[0] > 320:
+#         return analyze_faces(img_data, half_det_size(det_size))
+    
+#     return faces
 
 
 def get_face_single(img_data: np.ndarray, face, face_index=0, det_size=(640, 640), gender_source=0, gender_target=0, order="large-small"):
