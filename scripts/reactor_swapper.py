@@ -248,145 +248,145 @@ def analyze_faces(img_data: np.ndarray, det_size=(640, 640)):
     return faces
 
 
-# def get_face_single(img_data: np.ndarray, face, face_index=0, det_size=(640, 640), gender_source=0, gender_target=0, order="large-small"):
+def get_face_single(img_data: np.ndarray, face, face_index=0, det_size=(640, 640), gender_source=0, gender_target=0, order="large-small"):
 
-#     buffalo_path = os.path.join(insightface_models_path, "buffalo_l.zip")
-#     if os.path.exists(buffalo_path):
-#         os.remove(buffalo_path)
-
-#     if gender_source != 0:
-#         if len(face) == 0 and det_size[0] > 320 and det_size[1] > 320:
-#             det_size_half = half_det_size(det_size)
-#             return get_face_single(img_data, analyze_faces(img_data, det_size_half), face_index, det_size_half, gender_source, gender_target, order)
-#         return get_face_gender(face,face_index,gender_source,"Source", order)
-
-#     if gender_target != 0:
-#         if len(face) == 0 and det_size[0] > 320 and det_size[1] > 320:
-#             det_size_half = half_det_size(det_size)
-#             return get_face_single(img_data, analyze_faces(img_data, det_size_half), face_index, det_size_half, gender_source, gender_target, order)
-#         return get_face_gender(face,face_index,gender_target,"Target", order)
-    
-#     if len(face) == 0 and det_size[0] > 320 and det_size[1] > 320:
-#         det_size_half = half_det_size(det_size)
-#         return get_face_single(img_data, analyze_faces(img_data, det_size_half), face_index, det_size_half, gender_source, gender_target, order)
-
-#     try:
-#         faces_sorted = sort_by_order(face, order)
-#         return faces_sorted[face_index], 0
-#         # return sorted(face, key=lambda x: x.bbox[0])[face_index], 0
-#     except IndexError:
-#         return None, 0
-
-def get_face_single(
-    img_data: Union[np.ndarray, torch.Tensor], 
-    face,
-    face_index: int = 0,
-    det_size: tuple = (640, 640),
-    gender_source: int = 0,
-    gender_target: int = 0,
-    order: str = "large-small"
-) -> Tuple[Optional[Face], int]:
-    
-    # Clean up buffalo path (CPU operation)
     buffalo_path = os.path.join(insightface_models_path, "buffalo_l.zip")
     if os.path.exists(buffalo_path):
         os.remove(buffalo_path)
 
-    # Convert input to GPU tensor if it isn't already
-    if isinstance(img_data, np.ndarray):
-        img_tensor = torch.from_numpy(img_data).float().to('cuda')
-    else:
-        img_tensor = img_data.to('cuda') if img_data.is_cuda else img_data.float().to('cuda')
-
-    def analyze_faces_gpu(img_tensor: torch.Tensor, det_size: tuple) -> List[Face]:
-        """GPU-accelerated face analysis"""
-        # Convert tensor back to numpy for InsightFace (until it supports direct tensor input)
-        with torch.no_grad():
-            img_np = img_tensor.cpu().numpy().astype('uint8')
-        
-        face_analyser = getAnalysisModel(det_size)
-        try:
-            # First try with GPU
-            faces = face_analyser.get(img_np)
-        except RuntimeError:
-            # Fallback to CPU if GPU fails
-            faces = face_analyser.get(img_np)
-        return faces
-
-    # Handle gender-specific cases
     if gender_source != 0:
         if len(face) == 0 and det_size[0] > 320 and det_size[1] > 320:
             det_size_half = half_det_size(det_size)
-            return get_face_single(
-                img_tensor, 
-                analyze_faces_gpu(img_tensor, det_size_half),
-                face_index, 
-                det_size_half,
-                gender_source,
-                gender_target,
-                order
-            )
-        return get_face_gender(face, face_index, gender_source, "Source", order)
+            return get_face_single(img_data, analyze_faces(img_data, det_size_half), face_index, det_size_half, gender_source, gender_target, order)
+        return get_face_gender(face,face_index,gender_source,"Source", order)
 
     if gender_target != 0:
         if len(face) == 0 and det_size[0] > 320 and det_size[1] > 320:
             det_size_half = half_det_size(det_size)
-            return get_face_single(
-                img_tensor,
-                analyze_faces_gpu(img_tensor, det_size_half),
-                face_index,
-                det_size_half,
-                gender_source,
-                gender_target,
-                order
-            )
-        return get_face_gender(face, face_index, gender_target, "Target", order)
+            return get_face_single(img_data, analyze_faces(img_data, det_size_half), face_index, det_size_half, gender_source, gender_target, order)
+        return get_face_gender(face,face_index,gender_target,"Target", order)
     
-    # Default case
     if len(face) == 0 and det_size[0] > 320 and det_size[1] > 320:
         det_size_half = half_det_size(det_size)
-        return get_face_single(
-            img_tensor,
-            analyze_faces_gpu(img_tensor, det_size_half),
-            face_index,
-            det_size_half,
-            gender_source,
-            gender_target,
-            order
-        )
+        return get_face_single(img_data, analyze_faces(img_data, det_size_half), face_index, det_size_half, gender_source, gender_target, order)
 
     try:
-        # Sort faces on GPU if possible (convert bbox to tensors)
-        if torch.cuda.is_available():
-            bboxes = torch.tensor(
-                [[f.bbox[0], f.bbox[1], f.bbox[2], f.bbox[3]] for f in face],
-                device='cuda'
-            )
-            
-            if order == "left-right":
-                sorted_indices = torch.argsort(bboxes[:, 0])
-            elif order == "right-left":
-                sorted_indices = torch.argsort(bboxes[:, 0], descending=True)
-            elif order == "top-bottom":
-                sorted_indices = torch.argsort(bboxes[:, 1])
-            elif order == "bottom-top":
-                sorted_indices = torch.argsort(bboxes[:, 1], descending=True)
-            elif order == "small-large":
-                areas = (bboxes[:, 2] - bboxes[:, 0]) * (bboxes[:, 3] - bboxes[:, 1])
-                sorted_indices = torch.argsort(areas)
-            else:  # "large-small" (default)
-                areas = (bboxes[:, 2] - bboxes[:, 0]) * (bboxes[:, 3] - bboxes[:, 1])
-                sorted_indices = torch.argsort(areas, descending=True)
-                
-            return face[sorted_indices[face_index].item()], 0
-        else:
-            # Fallback to CPU sorting
-            faces_sorted = sort_by_order(face, order)
-            return faces_sorted[face_index], 0
-            
-    except (IndexError, RuntimeError) as e:
-        logger.warning(f"Face sorting failed: {str(e)}")
+        faces_sorted = sort_by_order(face, order)
+        return faces_sorted[face_index], 0
+        # return sorted(face, key=lambda x: x.bbox[0])[face_index], 0
+    except IndexError:
         return None, 0
+
+# def get_face_single(
+#     img_data: Union[np.ndarray, torch.Tensor], 
+#     face,
+#     face_index: int = 0,
+#     det_size: tuple = (640, 640),
+#     gender_source: int = 0,
+#     gender_target: int = 0,
+#     order: str = "large-small"
+# ) -> Tuple[Optional[Face], int]:
+    
+#     # Clean up buffalo path (CPU operation)
+#     buffalo_path = os.path.join(insightface_models_path, "buffalo_l.zip")
+#     if os.path.exists(buffalo_path):
+#         os.remove(buffalo_path)
+
+#     # Convert input to GPU tensor if it isn't already
+#     if isinstance(img_data, np.ndarray):
+#         img_tensor = torch.from_numpy(img_data).float().to('cuda')
+#     else:
+#         img_tensor = img_data.to('cuda') if img_data.is_cuda else img_data.float().to('cuda')
+
+#     def analyze_faces_gpu(img_tensor: torch.Tensor, det_size: tuple) -> List[Face]:
+#         """GPU-accelerated face analysis"""
+#         # Convert tensor back to numpy for InsightFace (until it supports direct tensor input)
+#         with torch.no_grad():
+#             img_np = img_tensor.cpu().numpy().astype('uint8')
+        
+#         face_analyser = getAnalysisModel(det_size)
+#         try:
+#             # First try with GPU
+#             faces = face_analyser.get(img_np)
+#         except RuntimeError:
+#             # Fallback to CPU if GPU fails
+#             faces = face_analyser.get(img_np)
+#         return faces
+
+#     # Handle gender-specific cases
+#     if gender_source != 0:
+#         if len(face) == 0 and det_size[0] > 320 and det_size[1] > 320:
+#             det_size_half = half_det_size(det_size)
+#             return get_face_single(
+#                 img_tensor, 
+#                 analyze_faces_gpu(img_tensor, det_size_half),
+#                 face_index, 
+#                 det_size_half,
+#                 gender_source,
+#                 gender_target,
+#                 order
+#             )
+#         return get_face_gender(face, face_index, gender_source, "Source", order)
+
+#     if gender_target != 0:
+#         if len(face) == 0 and det_size[0] > 320 and det_size[1] > 320:
+#             det_size_half = half_det_size(det_size)
+#             return get_face_single(
+#                 img_tensor,
+#                 analyze_faces_gpu(img_tensor, det_size_half),
+#                 face_index,
+#                 det_size_half,
+#                 gender_source,
+#                 gender_target,
+#                 order
+#             )
+#         return get_face_gender(face, face_index, gender_target, "Target", order)
+    
+#     # Default case
+#     if len(face) == 0 and det_size[0] > 320 and det_size[1] > 320:
+#         det_size_half = half_det_size(det_size)
+#         return get_face_single(
+#             img_tensor,
+#             analyze_faces_gpu(img_tensor, det_size_half),
+#             face_index,
+#             det_size_half,
+#             gender_source,
+#             gender_target,
+#             order
+#         )
+
+#     try:
+#         # Sort faces on GPU if possible (convert bbox to tensors)
+#         if torch.cuda.is_available():
+#             bboxes = torch.tensor(
+#                 [[f.bbox[0], f.bbox[1], f.bbox[2], f.bbox[3]] for f in face],
+#                 device='cuda'
+#             )
+            
+#             if order == "left-right":
+#                 sorted_indices = torch.argsort(bboxes[:, 0])
+#             elif order == "right-left":
+#                 sorted_indices = torch.argsort(bboxes[:, 0], descending=True)
+#             elif order == "top-bottom":
+#                 sorted_indices = torch.argsort(bboxes[:, 1])
+#             elif order == "bottom-top":
+#                 sorted_indices = torch.argsort(bboxes[:, 1], descending=True)
+#             elif order == "small-large":
+#                 areas = (bboxes[:, 2] - bboxes[:, 0]) * (bboxes[:, 3] - bboxes[:, 1])
+#                 sorted_indices = torch.argsort(areas)
+#             else:  # "large-small" (default)
+#                 areas = (bboxes[:, 2] - bboxes[:, 0]) * (bboxes[:, 3] - bboxes[:, 1])
+#                 sorted_indices = torch.argsort(areas, descending=True)
+                
+#             return face[sorted_indices[face_index].item()], 0
+#         else:
+#             # Fallback to CPU sorting
+#             faces_sorted = sort_by_order(face, order)
+#             return faces_sorted[face_index], 0
+            
+#     except (IndexError, RuntimeError) as e:
+#         logger.warning(f"Face sorting failed: {str(e)}")
+#         return None, 0
 
 
 def swap_face(
