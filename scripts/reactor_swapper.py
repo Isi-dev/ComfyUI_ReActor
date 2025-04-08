@@ -34,12 +34,14 @@ np.warnings.filterwarnings('ignore')
 try:
     if torch.cuda.is_available():
         providers = ["CUDAExecutionProvider"]
+        print("Using CUDA GPU for face Analysis and swapping.")
     elif torch.backends.mps.is_available():
         providers = ["CoreMLExecutionProvider"]
     elif hasattr(torch,'dml') or hasattr(torch,'privateuseone'):
         providers = ["ROCMExecutionProvider"]
     else:
         providers = ["CPUExecutionProvider"]
+        print("Using CPU for face Analysis and swapping..")
 except Exception as e:
     logger.debug(f"ExecutionProviderError: {e}.\nEP is set to CPU.")
     providers = ["CPUExecutionProvider"]
