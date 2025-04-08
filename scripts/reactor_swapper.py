@@ -393,6 +393,8 @@ def swap_face(
                 logger.status("No source face(s) in the provided Index")
         else:
             logger.status("No source face(s) found")
+        if model is not None:
+            del model
     return result_image
 
 def swap_face_many(
@@ -582,4 +584,6 @@ def swap_face_many(
                 logger.status("No source face(s) in the provided Index")
         else:
             logger.status("No source face(s) found")
+        if model is not None:
+            del model
     return result_images
