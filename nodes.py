@@ -1,6 +1,6 @@
 import os, glob, sys
 import logging
-
+import gc
 import torch
 import torch.nn.functional as torchfn
 from torchvision.transforms.functional import normalize
@@ -182,253 +182,494 @@ class reactor:
         self.interpolation = "Bicubic"
         self.boost_model_visibility = 1
         self.boost_cf_weight = 0.5
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.loaded_models = {}
 
-    def restore_face(
-            self,
-            input_image,
-            face_restore_model,
-            face_restore_visibility,
-            codeformer_weight,
-            facedetection,
-        ):
+    def cleanup(self):
+        """Release all GPU resources"""
+        for model_name, model in self.loaded_models.items():
+            if model is not None:
+                # if isinstance(model, torch.nn.Module):
+                #     model.to('cpu')
+                del model
+        self.loaded_models.clear()
+        torch.cuda.empty_cache()
+        gc.collect()
 
-        result = input_image
+    # def restore_face(
+    #         self,
+    #         input_image,
+    #         face_restore_model,
+    #         face_restore_visibility,
+    #         codeformer_weight,
+    #         facedetection,
+    #     ):
+
+    #     result = input_image
+
+    #     # result = input_image.to(self.device) 
+
+    #     if face_restore_model != "none" and not model_management.processing_interrupted():
+
+    #         global FACE_SIZE, FACE_HELPER
+
+    #         self.face_helper = FACE_HELPER
+
+    #         faceSize = 512
+    #         if "1024" in face_restore_model.lower():
+    #             faceSize = 1024
+    #         elif "2048" in face_restore_model.lower():
+    #             faceSize = 2048
+
+    #         logger.status(f"Restoring with {face_restore_model} | Face Size is set to {faceSize}")
+
+    #         model_path = folder_paths.get_full_path("facerestore_models", face_restore_model)
+
+    #         device = model_management.get_torch_device()
+
+    #         if "codeformer" in face_restore_model.lower():
+
+    #             codeformer_net = ARCH_REGISTRY.get("CodeFormer")(
+    #                 dim_embd=512,
+    #                 codebook_size=1024,
+    #                 n_head=8,
+    #                 n_layers=9,
+    #                 connect_list=["32", "64", "128", "256"],
+    #             ).to(device)
+    #             checkpoint = torch.load(model_path)["params_ema"]
+    #             codeformer_net.load_state_dict(checkpoint)
+    #             facerestore_model = codeformer_net.eval()
+
+    #         elif ".onnx" in face_restore_model:
+
+    #             ort_session = set_ort_session(model_path, providers=providers)
+    #             ort_session_inputs = {}
+    #             facerestore_model = ort_session
+
+    #         else:
+
+    #             sd = comfy.utils.load_torch_file(model_path, safe_load=True)
+    #             facerestore_model = model_loading.load_state_dict(sd).eval()
+    #             facerestore_model.to(device)
+
+    #         if faceSize != FACE_SIZE or self.face_helper is None:
+    #             self.face_helper = FaceRestoreHelper(1, face_size=faceSize, crop_ratio=(1, 1), det_model=facedetection, save_ext='png', use_parse=True, device=device)
+    #             FACE_SIZE = faceSize
+    #             FACE_HELPER = self.face_helper
+
+    #         image_np = 255. * result.numpy()
+
+    #         total_images = image_np.shape[0]
+
+    #         out_images = []
+
+    #         for i in range(total_images):
+
+    #             if total_images > 1:
+    #                 logger.status(f"Restoring {i+1}")
+
+    #             cur_image_np = image_np[i,:, :, ::-1]
+
+    #             original_resolution = cur_image_np.shape[0:2]
+
+    #             if facerestore_model is None or self.face_helper is None:
+    #                 return result
+
+    #             self.face_helper.clean_all()
+    #             self.face_helper.read_image(cur_image_np)
+    #             self.face_helper.get_face_landmarks_5(only_center_face=False, resize=640, eye_dist_threshold=5)
+    #             self.face_helper.align_warp_face()
+
+    #             restored_face = None
+
+    #             for idx, cropped_face in enumerate(self.face_helper.cropped_faces):
+
+    #                 # if ".pth" in face_restore_model:
+    #                 cropped_face_t = img2tensor(cropped_face / 255., bgr2rgb=True, float32=True)
+    #                 normalize(cropped_face_t, (0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True)
+    #                 cropped_face_t = cropped_face_t.unsqueeze(0).to(device)
+
+    #                 try:
+
+    #                     with torch.no_grad():
+
+    #                         if ".onnx" in face_restore_model: # ONNX models
+
+    #                             for ort_session_input in ort_session.get_inputs():
+    #                                 if ort_session_input.name == "input":
+    #                                     cropped_face_prep = prepare_cropped_face(cropped_face)
+    #                                     ort_session_inputs[ort_session_input.name] = cropped_face_prep
+    #                                 if ort_session_input.name == "weight":
+    #                                     weight = np.array([ 1 ], dtype = np.double)
+    #                                     ort_session_inputs[ort_session_input.name] = weight
+
+    #                             output = ort_session.run(None, ort_session_inputs)[0][0]
+    #                             restored_face = normalize_cropped_face(output)
+
+    #                         else: # PTH models
+
+    #                             output = facerestore_model(cropped_face_t, w=codeformer_weight)[0] if "codeformer" in face_restore_model.lower() else facerestore_model(cropped_face_t)[0]
+    #                             restored_face = tensor2img(output, rgb2bgr=True, min_max=(-1, 1))
+
+    #                     del output
+    #                     torch.cuda.empty_cache()
+
+    #                 except Exception as error:
+
+    #                     print(f"\tFailed inference: {error}", file=sys.stderr)
+    #                     restored_face = tensor2img(cropped_face_t, rgb2bgr=True, min_max=(-1, 1))
+
+    #                 if face_restore_visibility < 1:
+    #                     restored_face = cropped_face * (1 - face_restore_visibility) + restored_face * face_restore_visibility
+
+    #                 restored_face = restored_face.astype("uint8")
+    #                 self.face_helper.add_restored_face(restored_face)
+
+    #             self.face_helper.get_inverse_affine(None)
+
+    #             restored_img = self.face_helper.paste_faces_to_input_image()
+    #             restored_img = restored_img[:, :, ::-1]
+
+    #             if original_resolution != restored_img.shape[0:2]:
+    #                 restored_img = cv2.resize(restored_img, (0, 0), fx=original_resolution[1]/restored_img.shape[1], fy=original_resolution[0]/restored_img.shape[0], interpolation=cv2.INTER_AREA)
+
+    #             self.face_helper.clean_all()
+
+    #             # out_images[i] = restored_img
+    #             out_images.append(restored_img)
+
+    #             # if state.interrupted or model_management.processing_interrupted():
+    #             #     logger.status("Interrupted by User")
+    #             #     return input_image
+            
+    #         restored_img_np = np.array(out_images).astype(np.float32) / 255.0
+    #         restored_img_tensor = torch.from_numpy(restored_img_np)
+
+    #         result = restored_img_tensor
+
+    #         if face_restore_model != "none":
+    #             del face_restore_model
+
+    #     return result
+
+    def restore_face(self, input_image, face_restore_model, face_restore_visibility, 
+                    codeformer_weight, facedetection):
+        
+        result = input_image.to(self.device)  # Move input to GPU
 
         if face_restore_model != "none" and not model_management.processing_interrupted():
+            try:
+                faceSize = 512
+                if "1024" in face_restore_model.lower():
+                    faceSize = 1024
+                elif "2048" in face_restore_model.lower():
+                    faceSize = 2048
 
-            global FACE_SIZE, FACE_HELPER
+                logger.status(f"Restoring with {face_restore_model} | Face Size: {faceSize}")
 
-            self.face_helper = FACE_HELPER
+                model_path = folder_paths.get_full_path("facerestore_models", face_restore_model)
 
-            faceSize = 512
-            if "1024" in face_restore_model.lower():
-                faceSize = 1024
-            elif "2048" in face_restore_model.lower():
-                faceSize = 2048
+                # Load model with GPU optimization
+                if "codeformer" in face_restore_model.lower():
+                    if 'codeformer' not in self.loaded_models:
+                        codeformer_net = ARCH_REGISTRY.get("CodeFormer")(
+                            dim_embd=512, codebook_size=1024, n_head=8, n_layers=9,
+                            connect_list=["32", "64", "128", "256"]).to(self.device)
+                        checkpoint = torch.load(model_path, map_location=self.device)["params_ema"]
+                        codeformer_net.load_state_dict(checkpoint)
+                        self.loaded_models['codeformer'] = codeformer_net.eval()
+                    facerestore_model = self.loaded_models['codeformer']
 
-            logger.status(f"Restoring with {face_restore_model} | Face Size is set to {faceSize}")
+                elif ".onnx" in face_restore_model:
+                    if 'onnx' not in self.loaded_models:
+                        ort_session = set_ort_session(model_path, providers=["CUDAExecutionProvider"])
+                        self.loaded_models['onnx'] = ort_session
+                    facerestore_model = self.loaded_models['onnx']
 
-            model_path = folder_paths.get_full_path("facerestore_models", face_restore_model)
+                else:
+                    if 'pth' not in self.loaded_models:
+                        sd = comfy.utils.load_torch_file(model_path, safe_load=True)
+                        facerestore_model = model_loading.load_state_dict(sd).eval().to(self.device)
+                        self.loaded_models['pth'] = facerestore_model
+                    facerestore_model = self.loaded_models['pth']
 
-            device = model_management.get_torch_device()
+                # Initialize face helper on GPU
+                self.face_helper = FaceRestoreHelper(1, face_size=faceSize, 
+                    crop_ratio=(1, 1), det_model=facedetection, 
+                    save_ext='png', use_parse=True, device=self.device)
 
-            if "codeformer" in face_restore_model.lower():
+                # Process images on GPU
+                image_np = 255. * result.cpu().numpy()  # Only move to CPU for OpenCV ops
+                out_images = []
+                
+                for i in range(image_np.shape[0]):
+                    cur_image_np = image_np[i,:, :, ::-1]
+                    original_resolution = cur_image_np.shape[0:2]
 
-                codeformer_net = ARCH_REGISTRY.get("CodeFormer")(
-                    dim_embd=512,
-                    codebook_size=1024,
-                    n_head=8,
-                    n_layers=9,
-                    connect_list=["32", "64", "128", "256"],
-                ).to(device)
-                checkpoint = torch.load(model_path)["params_ema"]
-                codeformer_net.load_state_dict(checkpoint)
-                facerestore_model = codeformer_net.eval()
+                    self.face_helper.clean_all()
+                    self.face_helper.read_image(cur_image_np)
+                    self.face_helper.get_face_landmarks_5(only_center_face=False, resize=640, eye_dist_threshold=5)
+                    self.face_helper.align_warp_face()
 
-            elif ".onnx" in face_restore_model:
+                    for idx, cropped_face in enumerate(self.face_helper.cropped_faces):
+                        cropped_face_t = img2tensor(cropped_face / 255., bgr2rgb=True, float32=True)
+                        normalize(cropped_face_t, (0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True)
+                        cropped_face_t = cropped_face_t.unsqueeze(0).to(self.device)
 
-                ort_session = set_ort_session(model_path, providers=providers)
-                ort_session_inputs = {}
-                facerestore_model = ort_session
+                        try:
+                            with torch.no_grad(), torch.cuda.amp.autocast():
+                                if ".onnx" in face_restore_model:
+                                    # ONNX processing
+                                    ort_inputs = {
+                                        ort_input.name: prepare_cropped_face(cropped_face) 
+                                        if ort_input.name == "input" else np.array([1], dtype=np.double)
+                                        for ort_input in facerestore_model.get_inputs()
+                                    }
+                                    output = facerestore_model.run(None, ort_inputs)[0][0]
+                                    restored_face = normalize_cropped_face(output)
+                                else:
+                                    # PyTorch processing
+                                    output = facerestore_model(cropped_face_t, w=codeformer_weight)[0] if "codeformer" in face_restore_model.lower() else facerestore_model(cropped_face_t)[0]
+                                    restored_face = tensor2img(output, rgb2bgr=True, min_max=(-1, 1))
 
-            else:
+                            if face_restore_visibility < 1:
+                                restored_face = cropped_face * (1 - face_restore_visibility) + restored_face * face_restore_visibility
 
-                sd = comfy.utils.load_torch_file(model_path, safe_load=True)
-                facerestore_model = model_loading.load_state_dict(sd).eval()
-                facerestore_model.to(device)
+                            restored_face = restored_face.astype("uint8")
+                            self.face_helper.add_restored_face(restored_face)
 
-            if faceSize != FACE_SIZE or self.face_helper is None:
-                self.face_helper = FaceRestoreHelper(1, face_size=faceSize, crop_ratio=(1, 1), det_model=facedetection, save_ext='png', use_parse=True, device=device)
-                FACE_SIZE = faceSize
-                FACE_HELPER = self.face_helper
+                        except Exception as error:
+                            print(f"\tFailed inference: {error}", file=sys.stderr)
+                            restored_face = tensor2img(cropped_face_t, rgb2bgr=True, min_max=(-1, 1))
+                            self.face_helper.add_restored_face(restored_face)
 
-            image_np = 255. * result.numpy()
+                    self.face_helper.get_inverse_affine(None)
+                    restored_img = self.face_helper.paste_faces_to_input_image()
+                    restored_img = restored_img[:, :, ::-1]
 
-            total_images = image_np.shape[0]
+                    if original_resolution != restored_img.shape[0:2]:
+                        restored_img = cv2.resize(restored_img, (0, 0), 
+                            fx=original_resolution[1]/restored_img.shape[1], 
+                            fy=original_resolution[0]/restored_img.shape[0], 
+                            interpolation=cv2.INTER_AREA)
 
-            out_images = []
+                    out_images.append(restored_img)
 
-            for i in range(total_images):
+                # Convert back to tensor on GPU
+                restored_img_np = np.array(out_images).astype(np.float32) / 255.0
+                result = torch.from_numpy(restored_img_np).to(self.device)
 
-                if total_images > 1:
-                    logger.status(f"Restoring {i+1}")
+            finally:
+                self.cleanup()
 
-                cur_image_np = image_np[i,:, :, ::-1]
+        return result.cpu()  # Return to CPU for compatibility
 
-                original_resolution = cur_image_np.shape[0:2]
+    # def execute(self, enabled, input_image, swap_model, detect_gender_source, detect_gender_input, source_faces_index, input_faces_index, console_log_level, face_restore_model,face_restore_visibility, codeformer_weight, facedetection, source_image=None, face_model=None, faces_order=None, face_boost=None):
 
-                if facerestore_model is None or self.face_helper is None:
-                    return result
+    #     if face_boost is not None:
+    #         self.face_boost_enabled = face_boost["enabled"]
+    #         self.boost_model = face_boost["boost_model"]
+    #         self.interpolation = face_boost["interpolation"]
+    #         self.boost_model_visibility = face_boost["visibility"]
+    #         self.boost_cf_weight = face_boost["codeformer_weight"]
+    #         self.restore = face_boost["restore_with_main_after"]
+    #     else:
+    #         self.face_boost_enabled = False
 
-                self.face_helper.clean_all()
-                self.face_helper.read_image(cur_image_np)
-                self.face_helper.get_face_landmarks_5(only_center_face=False, resize=640, eye_dist_threshold=5)
-                self.face_helper.align_warp_face()
+    #     if faces_order is None:
+    #         faces_order = self.faces_order
 
-                restored_face = None
+    #     apply_patch(console_log_level)
 
-                for idx, cropped_face in enumerate(self.face_helper.cropped_faces):
+    #     if not enabled:
+    #         return (input_image,face_model)
+    #     elif source_image is None and face_model is None:
+    #         logger.error("Please provide 'source_image' or `face_model`")
+    #         return (input_image,face_model)
 
-                    # if ".pth" in face_restore_model:
-                    cropped_face_t = img2tensor(cropped_face / 255., bgr2rgb=True, float32=True)
-                    normalize(cropped_face_t, (0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True)
-                    cropped_face_t = cropped_face_t.unsqueeze(0).to(device)
+    #     if face_model == "none":
+    #         face_model = None
 
-                    try:
+    #     script = FaceSwapScript()
+    #     pil_images = batch_tensor_to_pil(input_image)
 
-                        with torch.no_grad():
+    #     # Unnecessary as I have no plans to use this for nefarious purposes. Commenting this out to reduce inference time.
+    #     # NSFW checker
+    #     # logger.status("Checking for any unsafe content")
+    #     # pil_images_sfw = []
+    #     # tmp_img = "reactor_tmp.png"
+    #     # for img in pil_images:
+    #     #     if state.interrupted or model_management.processing_interrupted():
+    #     #         logger.status("Interrupted by User")
+    #     #         break
+    #     #     img.save(tmp_img)
+    #     #     if not sfw.nsfw_image(tmp_img, NSFWDET_MODEL_PATH):
+    #     #         pil_images_sfw.append(img)
+    #     # if os.path.exists(tmp_img):
+    #     #     os.remove(tmp_img)
+    #     # pil_images = pil_images_sfw
+    #     # # #
 
-                            if ".onnx" in face_restore_model: # ONNX models
+    #     if len(pil_images) > 0:
 
-                                for ort_session_input in ort_session.get_inputs():
-                                    if ort_session_input.name == "input":
-                                        cropped_face_prep = prepare_cropped_face(cropped_face)
-                                        ort_session_inputs[ort_session_input.name] = cropped_face_prep
-                                    if ort_session_input.name == "weight":
-                                        weight = np.array([ 1 ], dtype = np.double)
-                                        ort_session_inputs[ort_session_input.name] = weight
+    #         if source_image is not None:
+    #             source = tensor_to_pil(source_image)
+    #             # print("Source Image Set!")
+    #         else:
+    #             source = None
+    #             print("Source Image not detected!")
+    #         p = StableDiffusionProcessingImg2Img(pil_images)
+    #         script.process(
+    #             p=p,
+    #             img=source,
+    #             enable=True,
+    #             source_faces_index=source_faces_index,
+    #             faces_index=input_faces_index,
+    #             model=swap_model,
+    #             swap_in_source=True,
+    #             swap_in_generated=True,
+    #             gender_source=detect_gender_source,
+    #             gender_target=detect_gender_input,
+    #             face_model=face_model,
+    #             faces_order=faces_order,
+    #             # face boost:
+    #             face_boost_enabled=self.face_boost_enabled,
+    #             face_restore_model=self.boost_model,
+    #             face_restore_visibility=self.boost_model_visibility,
+    #             codeformer_weight=self.boost_cf_weight,
+    #             interpolation=self.interpolation,
+    #         )
+    #         result = batched_pil_to_tensor(p.init_images)
 
-                                output = ort_session.run(None, ort_session_inputs)[0][0]
-                                restored_face = normalize_cropped_face(output)
+    #         if face_model is None:
+    #             current_face_model = get_current_faces_model()
+    #             face_model_to_provide = current_face_model[0] if (current_face_model is not None and len(current_face_model) > 0) else face_model
+    #         else:
+    #             face_model_to_provide = face_model
 
-                            else: # PTH models
+    #         if self.restore or not self.face_boost_enabled:
+    #             result = reactor.restore_face(self,result,face_restore_model,face_restore_visibility,codeformer_weight,facedetection)
 
-                                output = facerestore_model(cropped_face_t, w=codeformer_weight)[0] if "codeformer" in face_restore_model.lower() else facerestore_model(cropped_face_t)[0]
-                                restored_face = tensor2img(output, rgb2bgr=True, min_max=(-1, 1))
+    #     else:
+    #         image_black = Image.new("RGB", (512, 512))
+    #         result = batched_pil_to_tensor([image_black])
+    #         face_model_to_provide = None
 
-                        del output
-                        torch.cuda.empty_cache()
+    #     return (result,face_model_to_provide)
 
-                    except Exception as error:
-
-                        print(f"\tFailed inference: {error}", file=sys.stderr)
-                        restored_face = tensor2img(cropped_face_t, rgb2bgr=True, min_max=(-1, 1))
-
-                    if face_restore_visibility < 1:
-                        restored_face = cropped_face * (1 - face_restore_visibility) + restored_face * face_restore_visibility
-
-                    restored_face = restored_face.astype("uint8")
-                    self.face_helper.add_restored_face(restored_face)
-
-                self.face_helper.get_inverse_affine(None)
-
-                restored_img = self.face_helper.paste_faces_to_input_image()
-                restored_img = restored_img[:, :, ::-1]
-
-                if original_resolution != restored_img.shape[0:2]:
-                    restored_img = cv2.resize(restored_img, (0, 0), fx=original_resolution[1]/restored_img.shape[1], fy=original_resolution[0]/restored_img.shape[0], interpolation=cv2.INTER_AREA)
-
-                self.face_helper.clean_all()
-
-                # out_images[i] = restored_img
-                out_images.append(restored_img)
-
-                # if state.interrupted or model_management.processing_interrupted():
-                #     logger.status("Interrupted by User")
-                #     return input_image
+    def execute(self, enabled, input_image, swap_model, detect_gender_source, 
+           detect_gender_input, source_faces_index, input_faces_index, 
+           console_log_level, face_restore_model, face_restore_visibility, 
+           codeformer_weight, facedetection, source_image=None, face_model=None, 
+           faces_order=None, face_boost=None):
+    
+        try:
+            # Initialize GPU device
+            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
             
-            restored_img_np = np.array(out_images).astype(np.float32) / 255.0
-            restored_img_tensor = torch.from_numpy(restored_img_np)
-
-            result = restored_img_tensor
-
-            if face_restore_model != "none":
-                del face_restore_model
-
-        return result
-
-    def execute(self, enabled, input_image, swap_model, detect_gender_source, detect_gender_input, source_faces_index, input_faces_index, console_log_level, face_restore_model,face_restore_visibility, codeformer_weight, facedetection, source_image=None, face_model=None, faces_order=None, face_boost=None):
-
-        if face_boost is not None:
-            self.face_boost_enabled = face_boost["enabled"]
-            self.boost_model = face_boost["boost_model"]
-            self.interpolation = face_boost["interpolation"]
-            self.boost_model_visibility = face_boost["visibility"]
-            self.boost_cf_weight = face_boost["codeformer_weight"]
-            self.restore = face_boost["restore_with_main_after"]
-        else:
-            self.face_boost_enabled = False
-
-        if faces_order is None:
-            faces_order = self.faces_order
-
-        apply_patch(console_log_level)
-
-        if not enabled:
-            return (input_image,face_model)
-        elif source_image is None and face_model is None:
-            logger.error("Please provide 'source_image' or `face_model`")
-            return (input_image,face_model)
-
-        if face_model == "none":
-            face_model = None
-
-        script = FaceSwapScript()
-        pil_images = batch_tensor_to_pil(input_image)
-
-        # Unnecessary as I have no plans to use this for nefarious purposes. Commenting this out to reduce inference time.
-        # NSFW checker
-        # logger.status("Checking for any unsafe content")
-        # pil_images_sfw = []
-        # tmp_img = "reactor_tmp.png"
-        # for img in pil_images:
-        #     if state.interrupted or model_management.processing_interrupted():
-        #         logger.status("Interrupted by User")
-        #         break
-        #     img.save(tmp_img)
-        #     if not sfw.nsfw_image(tmp_img, NSFWDET_MODEL_PATH):
-        #         pil_images_sfw.append(img)
-        # if os.path.exists(tmp_img):
-        #     os.remove(tmp_img)
-        # pil_images = pil_images_sfw
-        # # #
-
-        if len(pil_images) > 0:
-
+            # Move all input tensors to GPU
+            input_image = input_image.to(self.device)
             if source_image is not None:
-                source = tensor_to_pil(source_image)
-                # print("Source Image Set!")
+                source_image = source_image.to(self.device)
+    
+            # Handle face boost parameters
+            if face_boost is not None:
+                self.face_boost_enabled = face_boost["enabled"]
+                self.boost_model = face_boost["boost_model"]
+                self.interpolation = face_boost["interpolation"]
+                self.boost_model_visibility = face_boost["visibility"]
+                self.boost_cf_weight = face_boost["codeformer_weight"]
+                self.restore = face_boost["restore_with_main_after"]
             else:
-                source = None
-                print("Source Image not detected!")
-            p = StableDiffusionProcessingImg2Img(pil_images)
-            script.process(
-                p=p,
-                img=source,
-                enable=True,
-                source_faces_index=source_faces_index,
-                faces_index=input_faces_index,
-                model=swap_model,
-                swap_in_source=True,
-                swap_in_generated=True,
-                gender_source=detect_gender_source,
-                gender_target=detect_gender_input,
-                face_model=face_model,
-                faces_order=faces_order,
-                # face boost:
-                face_boost_enabled=self.face_boost_enabled,
-                face_restore_model=self.boost_model,
-                face_restore_visibility=self.boost_model_visibility,
-                codeformer_weight=self.boost_cf_weight,
-                interpolation=self.interpolation,
-            )
-            result = batched_pil_to_tensor(p.init_images)
-
-            if face_model is None:
-                current_face_model = get_current_faces_model()
-                face_model_to_provide = current_face_model[0] if (current_face_model is not None and len(current_face_model) > 0) else face_model
+                self.face_boost_enabled = False
+    
+            if faces_order is None:
+                faces_order = self.faces_order
+    
+            apply_patch(console_log_level)
+    
+            # Early return if disabled or invalid inputs
+            if not enabled:
+                return (input_image.cpu(), face_model)
+            elif source_image is None and face_model is None:
+                logger.error("Please provide 'source_image' or `face_model`")
+                return (input_image.cpu(), face_model)
+    
+            if face_model == "none":
+                face_model = None
+    
+            # Convert input images to PIL (requires temporary CPU copy)
+            with torch.no_grad():
+                pil_images = batch_tensor_to_pil(input_image.cpu())
+    
+            if len(pil_images) > 0:
+                # Prepare source image on GPU if available
+                source_pil = None
+                if source_image is not None:
+                    with torch.no_grad():
+                        source_pil = tensor_to_pil(source_image.cpu())
+                
+                # Initialize processing with GPU-optimized pipeline
+                p = StableDiffusionProcessingImg2Img(pil_images)
+                
+                # Process face swapping on GPU
+                with torch.cuda.amp.autocast():
+                    script = FaceSwapScript()
+                    script.process(
+                        p=p,
+                        img=source_pil,
+                        enable=True,
+                        source_faces_index=source_faces_index,
+                        faces_index=input_faces_index,
+                        model=swap_model,
+                        swap_in_source=True,
+                        swap_in_generated=True,
+                        gender_source=detect_gender_source,
+                        gender_target=detect_gender_input,
+                        face_model=face_model,
+                        faces_order=faces_order,
+                        face_boost_enabled=self.face_boost_enabled,
+                        face_restore_model=self.boost_model,
+                        face_restore_visibility=self.boost_model_visibility,
+                        codeformer_weight=self.boost_cf_weight,
+                        interpolation=self.interpolation,
+                    )
+                    
+                    # Convert results back to GPU tensor
+                    result = batched_pil_to_tensor(p.init_images).to(self.device)
+    
+                # Handle face model output
+                if face_model is None:
+                    current_face_model = get_current_faces_model()
+                    face_model_to_provide = current_face_model[0] if (current_face_model is not None and len(current_face_model) > 0) else face_model
+                else:
+                    face_model_to_provide = face_model
+    
+                # Face restoration on GPU
+                if self.restore or not self.face_boost_enabled:
+                    with torch.cuda.amp.autocast():
+                        result = self.restore_face(
+                            result, face_restore_model, 
+                            face_restore_visibility, codeformer_weight, facedetection
+                        )
+    
             else:
-                face_model_to_provide = face_model
-
-            if self.restore or not self.face_boost_enabled:
-                result = reactor.restore_face(self,result,face_restore_model,face_restore_visibility,codeformer_weight,facedetection)
-
-        else:
-            image_black = Image.new("RGB", (512, 512))
-            result = batched_pil_to_tensor([image_black])
-            face_model_to_provide = None
-
-        return (result,face_model_to_provide)
+                # Fallback with GPU tensor
+                image_black = torch.zeros((1, 512, 512, 3), device=self.device)
+                result = image_black
+                face_model_to_provide = None
+    
+            # Ensure final output is on CPU for compatibility
+            return (result.cpu(), face_model_to_provide)
+    
+        except Exception as e:
+            logger.error(f"Error during execution: {str(e)}")
+            raise e
+            
+        finally:
+            # Cleanup GPU resources
+            self.cleanup()
+            torch.cuda.empty_cache()
 
 
 class ReActorPlusOpt:
