@@ -486,7 +486,7 @@ def swap_face(
                 break
 
             # Get source face with proper index handling
-            src_idx = source_faces_index[min(i, len(source_faces_index)-1]
+            src_idx = source_faces_index[min(i, len(source_faces_index)-1)]
             if source_img is not None:
                 src_face, wrong_gender = get_face_single(
                     source_img_cv, 
