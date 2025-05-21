@@ -130,38 +130,6 @@ def getFaceSwapModel(model_path: str):
     return FS_MODEL
 
 
-# def getAnalysisModel(det_size=(640, 640)):
-#     global ANALYSIS_MODELS
-#     ANALYSIS_MODEL = ANALYSIS_MODELS[str(det_size[0])]
-#     if ANALYSIS_MODEL is None:
-#         # Force CUDA execution provider for GPU acceleration
-#         ANALYSIS_MODEL = insightface.app.FaceAnalysis(
-#             name="buffalo_l", 
-#             providers=["CUDAExecutionProvider"],  # Explicitly use CUDA
-#             root=insightface_path
-#         )
-#         # Disable CPU fallback
-#         ANALYSIS_MODEL.disable_cpu_fallback = True  
-#     ANALYSIS_MODEL.prepare(ctx_id=0, det_size=det_size)
-#     ANALYSIS_MODELS[str(det_size[0])] = ANALYSIS_MODEL
-#     return ANALYSIS_MODEL
-
-# def getFaceSwapModel(model_path: str):
-#     global FS_MODEL, CURRENT_FS_MODEL_PATH
-#     if FS_MODEL is None or CURRENT_FS_MODEL_PATH is None or CURRENT_FS_MODEL_PATH != model_path:
-#         CURRENT_FS_MODEL_PATH = model_path
-#         FS_MODEL = unload_model(FS_MODEL)
-#         # Force CUDA execution
-#         FS_MODEL = insightface.model_zoo.get_model(
-#             model_path, 
-#             providers=["CUDAExecutionProvider"]
-#         )
-#         # Ensure model uses GPU
-#         if hasattr(FS_MODEL, 'model'):
-#             FS_MODEL.model.to('cuda')
-#     return FS_MODEL
-
-
 def sort_by_order(face, order: str):
     if order == "left-right":
         return sorted(face, key=lambda x: x.bbox[0])
@@ -226,28 +194,6 @@ def analyze_faces(img_data: np.ndarray, det_size=(640, 640)):
     return faces
 
 
-# def analyze_faces(img_data: np.ndarray, det_size=(640, 640)):
-#     # Convert numpy array to GPU tensor first
-#     if not isinstance(img_data, torch.Tensor):
-#         img_tensor = torch.from_numpy(img_data).float().to('cuda')
-#         img_data = img_tensor.cpu().numpy()  # Convert back for OpenCV compatibility
-    
-#     face_analyser = getAnalysisModel(det_size)
-    
-#     # Try with GPU first
-#     try:
-#         faces = face_analyser.get(img_data)
-#     except RuntimeError as e:
-#         logger.warning(f"GPU analysis failed, falling back to CPU: {str(e)}")
-#         faces = face_analyser.get(img_data)  # Will use CPU if GPU fails
-    
-#     # Fallback to smaller detection size if needed
-#     if len(faces) == 0 and det_size[0] > 320:
-#         return analyze_faces(img_data, half_det_size(det_size))
-    
-#     return faces
-
-
 def get_face_single(img_data: np.ndarray, face, face_index=0, det_size=(640, 640), gender_source=0, gender_target=0, order="large-small"):
 
     buffalo_path = os.path.join(insightface_models_path, "buffalo_l.zip")
@@ -277,116 +223,184 @@ def get_face_single(img_data: np.ndarray, face, face_index=0, det_size=(640, 640
     except IndexError:
         return None, 0
 
-# def get_face_single(
-#     img_data: Union[np.ndarray, torch.Tensor], 
-#     face,
-#     face_index: int = 0,
-#     det_size: tuple = (640, 640),
+
+# def swap_face(
+#     source_img: Union[Image.Image, None],
+#     target_img: Image.Image,
+#     model: Union[str, None] = None,
+#     source_faces_index: List[int] = [0],
+#     faces_index: List[int] = [0],
 #     gender_source: int = 0,
 #     gender_target: int = 0,
-#     order: str = "large-small"
-# ) -> Tuple[Optional[Face], int]:
-    
-#     # Clean up buffalo path (CPU operation)
-#     buffalo_path = os.path.join(insightface_models_path, "buffalo_l.zip")
-#     if os.path.exists(buffalo_path):
-#         os.remove(buffalo_path)
+#     face_model: Union[Face, None] = None,
+#     faces_order: List = ["large-small", "large-small"],
+#     face_boost_enabled: bool = False,
+#     face_restore_model = None,
+#     face_restore_visibility: int = 1,
+#     codeformer_weight: float = 0.5,
+#     interpolation: str = "Bicubic",
+# ):
+  
+#     global SOURCE_FACES, SOURCE_IMAGE_HASH, TARGET_FACES, TARGET_IMAGE_HASH
+#     result_image = target_img
 
-#     # Convert input to GPU tensor if it isn't already
-#     if isinstance(img_data, np.ndarray):
-#         img_tensor = torch.from_numpy(img_data).float().to('cuda')
-#     else:
-#         img_tensor = img_data.to('cuda') if img_data.is_cuda else img_data.float().to('cuda')
+#     if model is None:
+#         print("No faceswap model Found.")
 
-#     def analyze_faces_gpu(img_tensor: torch.Tensor, det_size: tuple) -> List[Face]:
-#         """GPU-accelerated face analysis"""
-#         # Convert tensor back to numpy for InsightFace (until it supports direct tensor input)
-#         with torch.no_grad():
-#             img_np = img_tensor.cpu().numpy().astype('uint8')
-        
-#         face_analyser = getAnalysisModel(det_size)
-#         try:
-#             # First try with GPU
-#             faces = face_analyser.get(img_np)
-#         except RuntimeError:
-#             # Fallback to CPU if GPU fails
-#             faces = face_analyser.get(img_np)
-#         return faces
+#     if model is not None:
 
-#     # Handle gender-specific cases
-#     if gender_source != 0:
-#         if len(face) == 0 and det_size[0] > 320 and det_size[1] > 320:
-#             det_size_half = half_det_size(det_size)
-#             return get_face_single(
-#                 img_tensor, 
-#                 analyze_faces_gpu(img_tensor, det_size_half),
-#                 face_index, 
-#                 det_size_half,
-#                 gender_source,
-#                 gender_target,
-#                 order
-#             )
-#         return get_face_gender(face, face_index, gender_source, "Source", order)
-
-#     if gender_target != 0:
-#         if len(face) == 0 and det_size[0] > 320 and det_size[1] > 320:
-#             det_size_half = half_det_size(det_size)
-#             return get_face_single(
-#                 img_tensor,
-#                 analyze_faces_gpu(img_tensor, det_size_half),
-#                 face_index,
-#                 det_size_half,
-#                 gender_source,
-#                 gender_target,
-#                 order
-#             )
-#         return get_face_gender(face, face_index, gender_target, "Target", order)
-    
-#     # Default case
-#     if len(face) == 0 and det_size[0] > 320 and det_size[1] > 320:
-#         det_size_half = half_det_size(det_size)
-#         return get_face_single(
-#             img_tensor,
-#             analyze_faces_gpu(img_tensor, det_size_half),
-#             face_index,
-#             det_size_half,
-#             gender_source,
-#             gender_target,
-#             order
-#         )
-
-#     try:
-#         # Sort faces on GPU if possible (convert bbox to tensors)
-#         if torch.cuda.is_available():
-#             bboxes = torch.tensor(
-#                 [[f.bbox[0], f.bbox[1], f.bbox[2], f.bbox[3]] for f in face],
-#                 device='cuda'
-#             )
+#         if isinstance(source_img, str):  # source_img is a base64 string
+#             import base64, io
+#             if 'base64,' in source_img:  # check if the base64 string has a data URL scheme
+#                 # split the base64 string to get the actual base64 encoded image data
+#                 base64_data = source_img.split('base64,')[-1]
+#                 # decode base64 string to bytes
+#                 img_bytes = base64.b64decode(base64_data)
+#             else:
+#                 # if no data URL scheme, just decode
+#                 img_bytes = base64.b64decode(source_img)
             
-#             if order == "left-right":
-#                 sorted_indices = torch.argsort(bboxes[:, 0])
-#             elif order == "right-left":
-#                 sorted_indices = torch.argsort(bboxes[:, 0], descending=True)
-#             elif order == "top-bottom":
-#                 sorted_indices = torch.argsort(bboxes[:, 1])
-#             elif order == "bottom-top":
-#                 sorted_indices = torch.argsort(bboxes[:, 1], descending=True)
-#             elif order == "small-large":
-#                 areas = (bboxes[:, 2] - bboxes[:, 0]) * (bboxes[:, 3] - bboxes[:, 1])
-#                 sorted_indices = torch.argsort(areas)
-#             else:  # "large-small" (default)
-#                 areas = (bboxes[:, 2] - bboxes[:, 0]) * (bboxes[:, 3] - bboxes[:, 1])
-#                 sorted_indices = torch.argsort(areas, descending=True)
-                
-#             return face[sorted_indices[face_index].item()], 0
+#             source_img = Image.open(io.BytesIO(img_bytes))
+            
+#         target_img = cv2.cvtColor(np.array(target_img), cv2.COLOR_RGB2BGR)
+
+#         if source_img is not None:
+
+#             source_img = cv2.cvtColor(np.array(source_img), cv2.COLOR_RGB2BGR)
+
+#             source_image_md5hash = get_image_md5hash(source_img)
+
+#             if SOURCE_IMAGE_HASH is None:
+#                 SOURCE_IMAGE_HASH = source_image_md5hash
+#                 source_image_same = False
+#             else:
+#                 source_image_same = True if SOURCE_IMAGE_HASH == source_image_md5hash else False
+#                 if not source_image_same:
+#                     SOURCE_IMAGE_HASH = source_image_md5hash
+
+#             logger.info("Source Image MD5 Hash = %s", SOURCE_IMAGE_HASH)
+#             logger.info("Source Image the Same? %s", source_image_same)
+
+#             if SOURCE_FACES is None or not source_image_same:
+#                 logger.status("Analyzing Source Image...")
+#                 source_faces = analyze_faces(source_img)
+#                 SOURCE_FACES = source_faces
+#             elif source_image_same:
+#                 logger.status("Using Hashed Source Face(s) Model...")
+#                 source_faces = SOURCE_FACES
+
+#         elif face_model is not None:
+
+#             source_faces_index = [0]
+#             logger.status("Using Loaded Source Face Model...")
+#             source_face_model = [face_model]
+#             source_faces = source_face_model
+
 #         else:
-#             # Fallback to CPU sorting
-#             faces_sorted = sort_by_order(face, order)
-#             return faces_sorted[face_index], 0
+#             logger.error("Cannot detect any Source")
             
-#     except (IndexError, RuntimeError) as e:
-#         logger.warning(f"Face sorting failed: {str(e)}")
-#         return None, 0
+
+#         if source_faces is not None:
+
+#             target_image_md5hash = get_image_md5hash(target_img)
+
+#             if TARGET_IMAGE_HASH is None:
+#                 TARGET_IMAGE_HASH = target_image_md5hash
+#                 target_image_same = False
+#             else:
+#                 target_image_same = True if TARGET_IMAGE_HASH == target_image_md5hash else False
+#                 if not target_image_same:
+#                     TARGET_IMAGE_HASH = target_image_md5hash
+
+#             logger.info("Target Image MD5 Hash = %s", TARGET_IMAGE_HASH)
+#             logger.info("Target Image the Same? %s", target_image_same)
+            
+#             if TARGET_FACES is None or not target_image_same:
+#                 logger.status("Analyzing Target Image...")
+#                 target_faces = analyze_faces(target_img)
+#                 TARGET_FACES = target_faces
+#             elif target_image_same:
+#                 logger.status("Using Hashed Target Face(s) Model...")
+#                 target_faces = TARGET_FACES
+
+#             # No use in trying to swap faces if no faces are found, enhancement
+#             if len(target_faces) == 0:
+#                 logger.status("Cannot detect any Target, skipping swapping...")
+#                 return result_image
+
+#             if source_img is not None:
+#                 # separated management of wrong_gender between source and target, enhancement
+#                 source_face, src_wrong_gender = get_face_single(source_img, source_faces, face_index=source_faces_index[0], gender_source=gender_source, order=faces_order[1])
+#             else:
+#                 # source_face = sorted(source_faces, key=lambda x: x.bbox[0])[source_faces_index[0]]
+#                 source_face = sorted(source_faces, key=lambda x: (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]), reverse = True)[source_faces_index[0]]
+#                 src_wrong_gender = 0
+
+#             if len(source_faces_index) != 0 and len(source_faces_index) != 1 and len(source_faces_index) != len(faces_index):
+#                 logger.status(f'Source Faces must have no entries (default=0), one entry, or same number of entries as target faces.')
+#             elif source_face is not None:
+#                 result = target_img
+#                 if "inswapper" in model:
+#                     model_path = os.path.join(insightface_path, model)
+#                 elif "reswapper" in model:
+#                     model_path = os.path.join(reswapper_path, model)
+#                 face_swapper = getFaceSwapModel(model_path)
+
+#                 source_face_idx = 0
+
+#                 for face_num in faces_index:
+#                     # No use in trying to swap faces if no further faces are found, enhancement
+#                     if face_num >= len(target_faces):
+#                         logger.status("Checked all existing target faces, skipping swapping...")
+#                         break
+
+#                     if len(source_faces_index) > 1 and source_face_idx > 0:
+#                         source_face, src_wrong_gender = get_face_single(source_img, source_faces, face_index=source_faces_index[source_face_idx], gender_source=gender_source, order=faces_order[1])
+#                     source_face_idx += 1
+
+#                     if source_face is not None and src_wrong_gender == 0:
+#                         target_face, wrong_gender = get_face_single(target_img, target_faces, face_index=face_num, gender_target=gender_target, order=faces_order[0])
+#                         if target_face is not None and wrong_gender == 0:
+#                             logger.status(f"Swapping...")
+#                             if face_boost_enabled:
+#                                 logger.status(f"Face Boost is enabled")
+#                                 bgr_fake, M = face_swapper.get(result, target_face, source_face, paste_back=False)
+#                                 bgr_fake, scale = restorer.get_restored_face(bgr_fake, face_restore_model, face_restore_visibility, codeformer_weight, interpolation)
+#                                 M *= scale
+#                                 result = swapper.in_swap(target_img, bgr_fake, M)
+#                             else:
+#                                 # logger.status(f"Swapping as-is")
+#                                 result = face_swapper.get(result, target_face, source_face)
+#                         elif wrong_gender == 1:
+#                             wrong_gender = 0
+#                             # Keep searching for other faces if wrong gender is detected, enhancement
+#                             #if source_face_idx == len(source_faces_index):
+#                             #    result_image = Image.fromarray(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
+#                             #    return result_image
+#                             logger.status("Wrong target gender detected")
+#                             continue
+#                         else:
+#                             logger.status(f"No target face found for {face_num}")
+#                     elif src_wrong_gender == 1:
+#                         src_wrong_gender = 0
+#                         # Keep searching for other faces if wrong gender is detected, enhancement
+#                         #if source_face_idx == len(source_faces_index):
+#                         #    result_image = Image.fromarray(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
+#                         #    return result_image
+#                         logger.status("Wrong source gender detected")
+#                         continue
+#                     else:
+#                         logger.status(f"No source face found for face number {source_face_idx}.")
+
+#                 result_image = Image.fromarray(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
+
+#             else:
+#                 logger.status("No source face(s) in the provided Index")
+#         else:
+#             logger.status("No source face(s) found")
+#         if model is not None:
+#             del model
+#     return result_image
 
 
 def swap_face(
@@ -405,7 +419,8 @@ def swap_face(
     codeformer_weight: float = 0.5,
     interpolation: str = "Bicubic",
 ):
-
+    # Initialize GPU device
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     global SOURCE_FACES, SOURCE_IMAGE_HASH, TARGET_FACES, TARGET_IMAGE_HASH
     result_image = target_img
@@ -414,25 +429,25 @@ def swap_face(
         print("No faceswap model Found.")
 
     if model is not None:
-
+        # Convert images to numpy arrays on GPU if possible
         if isinstance(source_img, str):  # source_img is a base64 string
             import base64, io
-            if 'base64,' in source_img:  # check if the base64 string has a data URL scheme
-                # split the base64 string to get the actual base64 encoded image data
+            if 'base64,' in source_img:
                 base64_data = source_img.split('base64,')[-1]
-                # decode base64 string to bytes
                 img_bytes = base64.b64decode(base64_data)
             else:
-                # if no data URL scheme, just decode
                 img_bytes = base64.b64decode(source_img)
             
             source_img = Image.open(io.BytesIO(img_bytes))
             
-        target_img = cv2.cvtColor(np.array(target_img), cv2.COLOR_RGB2BGR)
+        # Convert target image to numpy array (temporarily on CPU for OpenCV)
+        target_img_np = np.array(target_img)
+        target_img = cv2.cvtColor(target_img_np, cv2.COLOR_RGB2BGR)
 
         if source_img is not None:
-
-            source_img = cv2.cvtColor(np.array(source_img), cv2.COLOR_RGB2BGR)
+            # Convert source image to numpy array (temporarily on CPU for OpenCV)
+            source_img_np = np.array(source_img)
+            source_img = cv2.cvtColor(source_img_np, cv2.COLOR_RGB2BGR)
 
             source_image_md5hash = get_image_md5hash(source_img)
 
@@ -456,18 +471,14 @@ def swap_face(
                 source_faces = SOURCE_FACES
 
         elif face_model is not None:
-
             source_faces_index = [0]
             logger.status("Using Loaded Source Face Model...")
             source_face_model = [face_model]
             source_faces = source_face_model
-
         else:
             logger.error("Cannot detect any Source")
             
-
         if source_faces is not None:
-
             target_image_md5hash = get_image_md5hash(target_img)
 
             if TARGET_IMAGE_HASH is None:
@@ -489,260 +500,79 @@ def swap_face(
                 logger.status("Using Hashed Target Face(s) Model...")
                 target_faces = TARGET_FACES
 
-            # No use in trying to swap faces if no faces are found, enhancement
             if len(target_faces) == 0:
                 logger.status("Cannot detect any Target, skipping swapping...")
                 return result_image
 
-            if source_img is not None:
-                # separated management of wrong_gender between source and target, enhancement
-                source_face, src_wrong_gender = get_face_single(source_img, source_faces, face_index=source_faces_index[0], gender_source=gender_source, order=faces_order[1])
-            else:
-                # source_face = sorted(source_faces, key=lambda x: x.bbox[0])[source_faces_index[0]]
-                source_face = sorted(source_faces, key=lambda x: (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]), reverse = True)[source_faces_index[0]]
-                src_wrong_gender = 0
+            # Move face swapping operations to GPU context
+            with torch.cuda.amp.autocast():
+                if source_img is not None:
+                    source_face, src_wrong_gender = get_face_single(source_img, source_faces, face_index=source_faces_index[0], gender_source=gender_source, order=faces_order[1])
+                else:
+                    source_face = sorted(source_faces, key=lambda x: (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]), reverse=True)[source_faces_index[0]]
+                    src_wrong_gender = 0
 
-            if len(source_faces_index) != 0 and len(source_faces_index) != 1 and len(source_faces_index) != len(faces_index):
-                logger.status(f'Source Faces must have no entries (default=0), one entry, or same number of entries as target faces.')
-            elif source_face is not None:
-                result = target_img
-                if "inswapper" in model:
-                    model_path = os.path.join(insightface_path, model)
-                elif "reswapper" in model:
-                    model_path = os.path.join(reswapper_path, model)
-                face_swapper = getFaceSwapModel(model_path)
+                if len(source_faces_index) != 0 and len(source_faces_index) != 1 and len(source_faces_index) != len(faces_index):
+                    logger.status(f'Source Faces must have no entries (default=0), one entry, or same number of entries as target faces.')
+                elif source_face is not None:
+                    result = target_img
+                    if "inswapper" in model:
+                        model_path = os.path.join(insightface_path, model)
+                    elif "reswapper" in model:
+                        model_path = os.path.join(reswapper_path, model)
+                    
+                    # Load face swapper model on GPU
+                    face_swapper = getFaceSwapModel(model_path).to(device) if hasattr(getFaceSwapModel(model_path), 'to') else getFaceSwapModel(model_path)
 
-                source_face_idx = 0
+                    source_face_idx = 0
 
-                for face_num in faces_index:
-                    # No use in trying to swap faces if no further faces are found, enhancement
-                    if face_num >= len(target_faces):
-                        logger.status("Checked all existing target faces, skipping swapping...")
-                        break
+                    for face_num in faces_index:
+                        if face_num >= len(target_faces):
+                            logger.status("Checked all existing target faces, skipping swapping...")
+                            break
 
-                    if len(source_faces_index) > 1 and source_face_idx > 0:
-                        source_face, src_wrong_gender = get_face_single(source_img, source_faces, face_index=source_faces_index[source_face_idx], gender_source=gender_source, order=faces_order[1])
-                    source_face_idx += 1
+                        if len(source_faces_index) > 1 and source_face_idx > 0:
+                            source_face, src_wrong_gender = get_face_single(source_img, source_faces, face_index=source_faces_index[source_face_idx], gender_source=gender_source, order=faces_order[1])
+                        source_face_idx += 1
 
-                    if source_face is not None and src_wrong_gender == 0:
-                        target_face, wrong_gender = get_face_single(target_img, target_faces, face_index=face_num, gender_target=gender_target, order=faces_order[0])
-                        if target_face is not None and wrong_gender == 0:
-                            logger.status(f"Swapping...")
-                            if face_boost_enabled:
-                                logger.status(f"Face Boost is enabled")
-                                bgr_fake, M = face_swapper.get(result, target_face, source_face, paste_back=False)
-                                bgr_fake, scale = restorer.get_restored_face(bgr_fake, face_restore_model, face_restore_visibility, codeformer_weight, interpolation)
-                                M *= scale
-                                result = swapper.in_swap(target_img, bgr_fake, M)
+                        if source_face is not None and src_wrong_gender == 0:
+                            target_face, wrong_gender = get_face_single(target_img, target_faces, face_index=face_num, gender_target=gender_target, order=faces_order[0])
+                            if target_face is not None and wrong_gender == 0:
+                                logger.status(f"Swapping...")
+                                if face_boost_enabled:
+                                    logger.status(f"Face Boost is enabled")
+                                    bgr_fake, M = face_swapper.get(result, target_face, source_face, paste_back=False)
+                                    bgr_fake, scale = restorer.get_restored_face(bgr_fake, face_restore_model, face_restore_visibility, codeformer_weight, interpolation)
+                                    M *= scale
+                                    result = swapper.in_swap(target_img, bgr_fake, M)
+                                else:
+                                    result = face_swapper.get(result, target_face, source_face)
+                            elif wrong_gender == 1:
+                                wrong_gender = 0
+                                logger.status("Wrong target gender detected")
+                                continue
                             else:
-                                # logger.status(f"Swapping as-is")
-                                result = face_swapper.get(result, target_face, source_face)
-                        elif wrong_gender == 1:
-                            wrong_gender = 0
-                            # Keep searching for other faces if wrong gender is detected, enhancement
-                            #if source_face_idx == len(source_faces_index):
-                            #    result_image = Image.fromarray(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
-                            #    return result_image
-                            logger.status("Wrong target gender detected")
+                                logger.status(f"No target face found for {face_num}")
+                        elif src_wrong_gender == 1:
+                            src_wrong_gender = 0
+                            logger.status("Wrong source gender detected")
                             continue
                         else:
-                            logger.status(f"No target face found for {face_num}")
-                    elif src_wrong_gender == 1:
-                        src_wrong_gender = 0
-                        # Keep searching for other faces if wrong gender is detected, enhancement
-                        #if source_face_idx == len(source_faces_index):
-                        #    result_image = Image.fromarray(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
-                        #    return result_image
-                        logger.status("Wrong source gender detected")
-                        continue
-                    else:
-                        logger.status(f"No source face found for face number {source_face_idx}.")
+                            logger.status(f"No source face found for face number {source_face_idx}.")
 
-                result_image = Image.fromarray(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
-
-            else:
-                logger.status("No source face(s) in the provided Index")
+                    # Convert result back to PIL Image
+                    result_image = Image.fromarray(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
+                else:
+                    logger.status("No source face(s) in the provided Index")
         else:
             logger.status("No source face(s) found")
+            
+        # Clean up GPU resources
         if model is not None:
             del model
-    return result_image
-
-
-# def swap_face(
-#     source_img: Union[Image.Image, None],
-#     target_img: Image.Image,
-#     model: Union[str, None] = None,
-#     source_faces_index: List[int] = [0],
-#     faces_index: List[int] = [0],
-#     gender_source: int = 0,
-#     gender_target: int = 0,
-#     face_model: Union[Face, None] = None,
-#     faces_order: List = ["large-small", "large-small"],
-#     face_boost_enabled: bool = False,
-#     face_restore_model = None,
-#     face_restore_visibility: int = 1,
-#     codeformer_weight: float = 0.5,
-#     interpolation: str = "Bicubic",
-# ):
-#     # Initialize GPU
-#     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-#     result_image = target_img  # Fallback result
-    
-#     if model is None:
-#         logger.error("No faceswap model specified")
-#         return result_image
-
-#     try:
-#         # 1. Input Validation and Conversion
-#         def validate_image(img):
-#             if isinstance(img, Image.Image):
-#                 img = np.array(img)
-#                 if img.size == 0:
-#                     raise ValueError("Empty source image")
-#                 if len(img.shape) == 2:  # Grayscale to RGB
-#                     img = np.stack([img]*3, axis=-1)
-#                 return img
-#             return img
-
-#         # Process source image
-#         source_np = None
-#         if isinstance(source_img, str):
-#             import base64, io
-#             try:
-#                 base64_data = source_img.split('base64,')[-1]
-#                 img_bytes = base64.b64decode(base64_data)
-#                 source_img = Image.open(io.BytesIO(img_bytes))
-#             except Exception as e:
-#                 logger.error(f"Base64 decode failed: {str(e)}")
-#                 return result_image
-
-#         if source_img is not None:
-#             try:
-#                 source_np = validate_image(source_img)
-#                 source_img_cv = cv2.cvtColor(source_np, cv2.COLOR_RGB2BGR)
-#                 if source_img_cv.size == 0:
-#                     raise ValueError("Empty source image after conversion")
-#             except Exception as e:
-#                 logger.error(f"Source image processing failed: {str(e)}")
-#                 return result_image
-#         elif face_model is None:
-#             logger.error("No valid source provided")
-#             return result_image
-
-#         # Process target image
-#         try:
-#             target_np = validate_image(target_img)
-#             target_img_cv = cv2.cvtColor(target_np, cv2.COLOR_RGB2BGR)
-#             if target_img_cv.size == 0:
-#                 raise ValueError("Empty target image after conversion")
-#         except Exception as e:
-#             logger.error(f"Target image processing failed: {str(e)}")
-#             return result_image
-
-#         # 2. Face Analysis with Validation
-#         def safe_analyze(img_cv):
-#             if img_cv.size == 0 or img_cv.shape[0] < 10 or img_cv.shape[1] < 10:
-#                 logger.warning("Image too small for face detection")
-#                 return []
-#             try:
-#                 faces = analyze_faces(img_cv)
-#                 if not faces:
-#                     logger.warning("No faces detected")
-#                 return faces
-#             except Exception as e:
-#                 logger.warning(f"Face analysis failed: {str(e)}")
-#                 return []
-
-#         # Analyze source
-#         source_faces = [face_model] if face_model else safe_analyze(source_img_cv)
-#         if not source_faces:
-#             logger.error("No source faces available")
-#             return result_image
-
-#         # Analyze target
-#         target_faces = safe_analyze(target_img_cv)
-#         if not target_faces:
-#             logger.error("No target faces detected")
-#             return result_image
-
-#         # 3. GPU-accelerated Face Swapping
-#         model_path = os.path.join(insightface_path if "inswapper" in model else reswapper_path, model)
-#         face_swapper = getFaceSwapModel(model_path)
-
-#         # Get source face with validation
-#         source_face, src_wrong_gender = get_face_single(
-#             source_img_cv if source_np is not None else None,
-#             source_faces,
-#             face_index=source_faces_index[0],
-#             gender_source=gender_source,
-#             order=faces_order[1]
-#         )
-#         if source_face is None:
-#             logger.error("Failed to get source face")
-#             return result_image
-
-#         # Process each target face
-#         result_cv = target_img_cv.copy()
-#         for face_num in faces_index:
-#             if face_num >= len(target_faces):
-#                 logger.warning(f"Face index {face_num} out of range")
-#                 continue
-
-#             target_face, wrong_gender = get_face_single(
-#                 target_img_cv,
-#                 target_faces,
-#                 face_index=face_num,
-#                 gender_target=gender_target,
-#                 order=faces_order[0]
-#             )
-#             if target_face is None or wrong_gender != 0:
-#                 continue
-
-#             try:
-#                 # Perform swap with dimension validation
-#                 if face_boost_enabled:
-#                     bgr_fake, M = face_swapper.get(
-#                         result_cv,
-#                         target_face,
-#                         source_face,
-#                         paste_back=False
-#                     )
-#                     # Validate before restoration
-#                     if bgr_fake.size == 0 or M is None:
-#                         raise ValueError("Invalid face swap result")
-                    
-#                     bgr_fake = restorer.get_restored_face(
-#                         bgr_fake,
-#                         face_restore_model,
-#                         face_restore_visibility,
-#                         codeformer_weight,
-#                         interpolation
-#                     )
-#                     result_cv = swapper.in_swap(result_cv, bgr_fake, M)
-#                 else:
-#                     result = face_swapper.get(result_cv, target_face, source_face)
-#                     if result.size == 0:
-#                         raise ValueError("Empty swap result")
-#                     result_cv = result
-
-#             except Exception as e:
-#                 logger.warning(f"Face swap failed for face {face_num}: {str(e)}")
-#                 continue
-
-#         # Convert back to PIL Image with validation
-#         if result_cv.size == 0:
-#             logger.error("Empty result after processing")
-#             return result_image
+            torch.cuda.empty_cache()
             
-#         result_image = Image.fromarray(cv2.cvtColor(result_cv, cv2.COLOR_BGR2RGB))
-
-#     except Exception as e:
-#         logger.error(f"Critical error in swap_face: {str(e)}")
-#     finally:
-#         torch.cuda.empty_cache()
-
-#     return result_image
+    return result_image
 
 
 def swap_face_many(
