@@ -419,99 +419,123 @@ def swap_face(
     codeformer_weight: float = 0.5,
     interpolation: str = "Bicubic",
 ):
-    # GPU Setup
+    # Initialize GPU if available
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    torch.backends.cudnn.benchmark = True  # Optimizes CUDA convolution ops
+    torch.backends.cudnn.benchmark = True  # Faster convolutions
 
     global SOURCE_FACES, SOURCE_IMAGE_HASH, TARGET_FACES, TARGET_IMAGE_HASH
 
-    # Early exit if no model
+    # Early return if no model provided
     if model is None:
-        print("No faceswap model found.")
+        print("No faceswap model provided.")
         return target_img
 
-    # Convert images to numpy (still CPU for OpenCV)
-    target_np = np.array(target_img)
-    target_img_cv = cv2.cvtColor(target_np, cv2.COLOR_RGB2BGR)
+    # Convert target image to OpenCV format (temporarily on CPU)
+    target_img_cv = cv2.cvtColor(np.array(target_img), cv2.COLOR_RGB2BGR)
 
-    # --- Source Face Handling (Optimized) ---
-    if isinstance(source_img, str):  # Base64 decode
+    # --- Source Face Processing ---
+    if isinstance(source_img, str):  # Handle base64 input
         import base64, io
         base64_data = source_img.split('base64,')[-1] if 'base64,' in source_img else source_img
         source_img = Image.open(io.BytesIO(base64.b64decode(base64_data)))
 
     source_faces = None
     if source_img is not None:
-        source_np = np.array(source_img)
-        source_img_cv = cv2.cvtColor(source_np, cv2.COLOR_RGB2BGR)
-        
-        # Cache face analysis
+        source_img_cv = cv2.cvtColor(np.array(source_img), cv2.COLOR_RGB2BGR)
         current_hash = get_image_md5hash(source_img_cv)
+        
         if SOURCE_IMAGE_HASH != current_hash:
             SOURCE_IMAGE_HASH = current_hash
-            logger.status("Analyzing Source Image...")
-            SOURCE_FACES = analyze_faces(source_img_cv)  # Consider GPU-accelerated face detection if available
+            logger.status("Detecting source faces...")
+            SOURCE_FACES = analyze_faces(source_img_cv)  # Consider GPU-accelerated version
         source_faces = SOURCE_FACES
     elif face_model is not None:
         source_faces = [face_model]
 
     if not source_faces:
-        logger.error("No source faces detected")
+        logger.error("No source faces available")
         return target_img
 
-    # --- Target Face Handling (Optimized) ---
+    # --- Target Face Processing ---
     current_hash = get_image_md5hash(target_img_cv)
     if TARGET_IMAGE_HASH != current_hash:
         TARGET_IMAGE_HASH = current_hash
-        logger.status("Analyzing Target Image...")
-        TARGET_FACES = analyze_faces(target_img_cv)  # Consider GPU-accelerated face detection
+        logger.status("Detecting target faces...")
+        TARGET_FACES = analyze_faces(target_img_cv)  # Consider GPU-accelerated version
     target_faces = TARGET_FACES
 
     if not target_faces:
-        logger.status("No target faces detected")
+        logger.status("No target faces found")
         return target_img
 
-    # --- Face Swapping (GPU Accelerated) ---
+    # --- GPU-Accelerated Face Swapping ---
     model_path = os.path.join(
-        insightface_path if "inswapper" in model else reswapper_path,
+        insightface_path if "inswapper" in model.lower() else reswapper_path,
         model
     )
     
-    # Load model ONCE with GPU support
+    # Load model with GPU support
     face_swapper = getFaceSwapModel(model_path)
     if hasattr(face_swapper, 'to'):
         face_swapper = face_swapper.to(device)
 
     result = target_img_cv
-    with torch.no_grad(), torch.cuda.amp.autocast():  # Mixed precision for 2-3x speedup
+    with torch.no_grad(), torch.cuda.amp.autocast():  # 2-3x speedup with mixed precision
         for i, face_num in enumerate(faces_index):
             if face_num >= len(target_faces):
                 break
 
-            # Get source face (with GPU-optimized sorting if possible)
-            src_face = (
-                get_face_single(source_img_cv, source_faces, source_faces_index[min(i, len(source_faces_index)-1], gender_source, faces_order[1])[0]
-                if source_img is not None else
-                sorted(source_faces, key=lambda x: (x.bbox[2]-x.bbox[0])*(x.bbox[3]-x.bbox[1]), reverse=True)[source_faces_index[0]]
-            )
+            # Get source face with proper index handling
+            src_idx = source_faces_index[min(i, len(source_faces_index)-1]
+            if source_img is not None:
+                src_face, wrong_gender = get_face_single(
+                    source_img_cv, 
+                    source_faces, 
+                    face_index=src_idx, 
+                    gender_source=gender_source, 
+                    order=faces_order[1]
+                )
+            else:
+                src_face = sorted(
+                    source_faces, 
+                    key=lambda x: (x.bbox[2]-x.bbox[0])*(x.bbox[3]-x.bbox[1]), 
+                    reverse=True
+                )[src_idx]
+                wrong_gender = 0
+
+            if wrong_gender:
+                continue
 
             # Get target face
-            tgt_face, wrong_gender = get_face_single(target_img_cv, target_faces, face_num, gender_target, faces_order[0])
+            tgt_face, wrong_gender = get_face_single(
+                target_img_cv, 
+                target_faces, 
+                face_index=face_num, 
+                gender_target=gender_target, 
+                order=faces_order[0]
+            )
             if not tgt_face or wrong_gender:
                 continue
 
             # Perform swap on GPU
             if face_boost_enabled:
                 bgr_fake, M = face_swapper.get(result, tgt_face, src_face, paste_back=False)
-                bgr_fake = restorer.get_restored_face(bgr_fake, face_restore_model, face_restore_visibility, codeformer_weight, interpolation)[0]
+                bgr_fake = restorer.get_restored_face(
+                    bgr_fake, 
+                    face_restore_model, 
+                    face_restore_visibility, 
+                    codeformer_weight, 
+                    interpolation
+                )[0]
                 result = swapper.in_swap(result, bgr_fake, M)
             else:
                 result = face_swapper.get(result, tgt_face, src_face)
 
-    # Cleanup
-    del face_swapper
+    # Cleanup GPU resources
+    if 'face_swapper' in locals():
+        del face_swapper
     torch.cuda.empty_cache()
-    
+
     return Image.fromarray(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
 
 
